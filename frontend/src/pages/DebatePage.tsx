@@ -17,7 +17,20 @@ interface Props {
 
 export const DebatePage: React.FC<Props> = ({ language }) => {
   const isUrdu = language === 'ur';
-  const [activeMode, setActiveMode] = useState<'voice' | 'written'>('voice');
+  const [activeMode, setActiveModeState] = useState<'voice' | 'written'>(() => {
+    try {
+      const saved = localStorage.getItem('daleel_debate_mode');
+      if (saved === 'written' || saved === 'voice') return saved;
+    } catch {}
+    return 'voice';
+  });
+
+  const setActiveMode = (mode: 'voice' | 'written') => {
+    setActiveModeState(mode);
+    try {
+      localStorage.setItem('daleel_debate_mode', mode);
+    } catch {}
+  };
   const [transcript, setTranscript] = useState('');
   const [debateTitle, setDebateTitle] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -111,6 +124,73 @@ export const DebatePage: React.FC<Props> = ({ language }) => {
   const sampleDebate = `Speaker 1: "The argument claims that Surah 112 teaches God is one, but our theological position maintains that divine complexity allows multiple personas."
 Speaker 2: "However, the Quran states 'Qul Huwa Allahu Ahad'—Ahad signifies absolute, indivisible oneness with no parts, partners, or multiplicity. Sourced directly from scripture."`;
 
+  if (activeMode === 'voice') {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          width: '100%',
+          overflow: 'hidden',
+          padding: '0.75rem 1rem',
+          minHeight: 0
+        }}
+      >
+        {/* Debate Mode Switcher Tabs */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem', flexWrap: 'wrap', flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={() => setActiveMode('voice')}
+            className="btn btn-ghost"
+            style={{
+              padding: '0.35rem 0.95rem',
+              borderRadius: '20px',
+              fontSize: '0.8rem',
+              gap: '0.4rem',
+              backgroundColor: 'rgba(18, 168, 134, 0.15)',
+              color: 'var(--emerald-primary)',
+              border: '1px solid rgba(18, 168, 134, 0.4)',
+              fontWeight: 600
+            }}
+          >
+            <Headphones size={14} />
+            <span>{isUrdu ? 'براہِ راست صوتی مناظرہ' : 'Live Voice Debate'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveMode('written')}
+            className="btn btn-ghost"
+            style={{
+              padding: '0.35rem 0.95rem',
+              borderRadius: '20px',
+              fontSize: '0.8rem',
+              gap: '0.4rem',
+              backgroundColor: 'var(--bg-surface)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-subtle)',
+              fontWeight: 500
+            }}
+          >
+            <Scale size={14} />
+            <span>{isUrdu ? 'تحریری تجزیہ و شواہد' : 'Written Argument Analysis'}</span>
+          </button>
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <DebateLiveVoiceView
+            language={language}
+            onDebateSaved={(id) => {
+              loadPastDebates();
+              handleSelectPastDebate(id);
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ flex: 1, padding: '1.5rem 2rem', overflowY: 'auto' }}>
       <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
@@ -125,10 +205,10 @@ Speaker 2: "However, the Quran states 'Qul Huwa Allahu Ahad'—Ahad signifies ab
               borderRadius: '20px',
               fontSize: '0.85rem',
               gap: '0.45rem',
-              backgroundColor: activeMode === 'voice' ? 'rgba(18, 168, 134, 0.15)' : 'var(--bg-surface)',
-              color: activeMode === 'voice' ? 'var(--emerald-primary)' : 'var(--text-secondary)',
-              border: activeMode === 'voice' ? '1px solid rgba(18, 168, 134, 0.4)' : '1px solid var(--border-subtle)',
-              fontWeight: activeMode === 'voice' ? 600 : 500
+              backgroundColor: 'var(--bg-surface)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-subtle)',
+              fontWeight: 500
             }}
           >
             <Headphones size={15} />
@@ -144,10 +224,10 @@ Speaker 2: "However, the Quran states 'Qul Huwa Allahu Ahad'—Ahad signifies ab
               borderRadius: '20px',
               fontSize: '0.85rem',
               gap: '0.45rem',
-              backgroundColor: activeMode === 'written' ? 'rgba(18, 168, 134, 0.15)' : 'var(--bg-surface)',
-              color: activeMode === 'written' ? 'var(--emerald-primary)' : 'var(--text-secondary)',
-              border: activeMode === 'written' ? '1px solid rgba(18, 168, 134, 0.4)' : '1px solid var(--border-subtle)',
-              fontWeight: activeMode === 'written' ? 600 : 500
+              backgroundColor: 'rgba(18, 168, 134, 0.15)',
+              color: 'var(--emerald-primary)',
+              border: '1px solid rgba(18, 168, 134, 0.4)',
+              fontWeight: 600
             }}
           >
             <Scale size={15} />
@@ -155,18 +235,7 @@ Speaker 2: "However, the Quran states 'Qul Huwa Allahu Ahad'—Ahad signifies ab
           </button>
         </div>
 
-        {activeMode === 'voice' ? (
-          <div style={{ marginBottom: '2rem' }}>
-            <DebateLiveVoiceView
-              language={language}
-              onDebateSaved={(id) => {
-                loadPastDebates();
-                handleSelectPastDebate(id);
-              }}
-            />
-          </div>
-        ) : (
-          <>
+        <>
             {/* Title & Introduction */}
             <div style={{ marginBottom: '1.75rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.4rem' }}>
@@ -450,7 +519,6 @@ Speaker 2: "However, the Quran states 'Qul Huwa Allahu Ahad'—Ahad signifies ab
           </div>
         )}
         </>
-      )}
       </div>
     </div>
   );

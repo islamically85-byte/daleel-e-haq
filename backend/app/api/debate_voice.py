@@ -2,13 +2,15 @@ import asyncio
 import base64
 import json
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
 
 from app.config import settings
+from app.evidence.retriever import get_quran_verse, search_quran_fts, search_hadith_fts, retrieve_relevant_evidence
+from app.evidence.verifier import validate_source_id
 from app.memory.repository import MemoryRepository
 
 logger = logging.getLogger("daleel.debate_voice")
@@ -73,6 +75,112 @@ def save_debate_session(payload: SaveDebateSessionRequest):
     return {"status": "saved", "debate_id": saved.get("id")}
 
 
+# Tools definition for Gemini Live
+quran_tool_decl = types.FunctionDeclaration(
+    name="get_quran_evidence",
+    description="Look up verified Quranic verses from the local SQLite database by surah number and ayah number, or by topic search query in English or Urdu.",
+    parameters=types.Schema(
+        type="OBJECT",
+        properties={
+            "query": types.Schema(type="STRING", description="Search topic, question, or phrase in English or Urdu"),
+            "surah": types.Schema(type="INTEGER", description="Surah chapter number (1-114)"),
+            "ayah": types.Schema(type="INTEGER", description="Ayah verse number")
+        }
+    )
+)
+
+hadith_tool_decl = types.FunctionDeclaration(
+    name="check_hadith_evidence",
+    description="Query the local database for Hadith narrations or references related to a topic or collection.",
+    parameters=types.Schema(
+        type="OBJECT",
+        properties={
+            "query": types.Schema(type="STRING", description="Search topic or narration in English or Urdu"),
+            "collection": types.Schema(type="STRING", description="Collection name if known (e.g., bukhari, muslim)")
+        },
+        required=["query"]
+    )
+)
+
+
+def handle_quran_lookup(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Retrieves verified scripture from local Tanzil Quran SQLite database."""
+    surah = args.get("surah")
+    ayah = args.get("ayah")
+    query = args.get("query")
+
+    if surah is not None and ayah is not None:
+        try:
+            s_num = int(surah)
+            a_num = int(ayah)
+            verse = get_quran_verse(s_num, a_num)
+            if verse:
+                return {
+                    "status": "found",
+                    "source_id": verse["id"],
+                    "surah_number": verse["surah_number"],
+                    "ayah_number": verse["ayah_number"],
+                    "surah_name_en": verse["surah_name_en"],
+                    "surah_name_ar": verse["surah_name_ar"],
+                    "text_ar": verse["text_ar"],
+                    "translation_en": verse["translation_en"],
+                    "translation_ur": verse["translation_ur"],
+                    "citation": f"Surah {verse['surah_name_en']} ({verse['surah_number']}:{verse['ayah_number']})",
+                    "is_verified": True
+                }
+            return {
+                "status": "not_found",
+                "message": f"Ayah {s_num}:{a_num} does not exist in the 6,236 verses of the Holy Quran.",
+                "is_verified": False
+            }
+        except (ValueError, TypeError):
+            pass
+
+    if query:
+        hits = search_quran_fts(str(query), limit=3)
+        if hits:
+            formatted = []
+            for h in hits:
+                formatted.append({
+                    "source_id": h["id"],
+                    "surah_number": h["surah_number"],
+                    "ayah_number": h["ayah_number"],
+                    "surah_name_en": h["surah_name_en"],
+                    "surah_name_ar": h["surah_name_ar"],
+                    "text_ar": h["text_ar"],
+                    "translation_en": h["translation_en"],
+                    "translation_ur": h["translation_ur"],
+                    "citation": f"Surah {h['surah_name_en']} ({h['surah_number']}:{h['ayah_number']})",
+                    "is_verified": True
+                })
+            return {"status": "found", "verses": formatted, "is_verified": True}
+        return {
+            "status": "no_results",
+            "message": f"No Quranic verses matched search terms: {query}",
+            "is_verified": False
+        }
+
+    return {"status": "error", "message": "Missing search parameters.", "is_verified": False}
+
+
+def handle_hadith_lookup(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Queries local Hadith database, disclosing limitations if not installed."""
+    query = args.get("query", "")
+    hits = search_hadith_fts(str(query), limit=3) if query else []
+    if hits:
+        return {"status": "found", "hadiths": hits, "is_verified": True}
+    return {
+        "status": "unverified",
+        "records_found": 0,
+        "is_verified": False,
+        "limitation_disclosure": (
+            "The approved local Daleel-e-Haq database currently contains the complete Holy Quran (6,236 verses). "
+            "The authenticated Hadith corpus is not yet installed in local storage. "
+            "Therefore, Hadith citations cannot be verified against offline records."
+        )
+    }
+
+
 @debate_voice_router.websocket("/ws/debate-live")
 async def debate_live_websocket(
     websocket: WebSocket,
@@ -82,7 +190,8 @@ async def debate_live_websocket(
     """Bidirectional WebSocket for real-time voice-to-voice debate using gemini-3.8-live.
     
     Streams raw 16kHz PCM microphone audio to Gemini Live and returns 24kHz PCM synthesized speech,
-    live bidirectional captions, natural turn-taking, and interruption events.
+    live bidirectional captions, server-side function calling for verified local evidence retrieval,
+    turn-taking states, and interruption handling.
     """
     await websocket.accept()
 
@@ -99,15 +208,18 @@ async def debate_live_websocket(
         voice_name = "Puck"
 
     system_instruction = (
-        "You are Daleel-e-Haq (دلیلِ حق) Live Voice Debate partner. "
+        "You are Daleel-e-Haq (دلیلِ حق — Evidence of Truth), a disciplined, evidence-based Islamic theological and debate partner. "
         "Engage in respectful, scholarly, evidence-grounded theological and philosophical dialogue. "
-        "Converse fluently across English, Urdu, Hindi, Roman Urdu, and Punjabi. "
-        "When the user speaks Urdu, Hindi, or Punjabi, respond in eloquent, natural spoken Urdu (Urdu script). "
-        "When the user speaks English, respond in articulate English. "
-        "Do NOT speak markdown asterisks, hashtags, bullets, or symbols. Keep responses conversational. "
-        "Keep your spoken turns concise, natural, and direct (1 to 3 spoken sentences per turn) "
-        "so natural turn-taking and dialogue flow smoothly. "
-        "Cite Quran Surah names, Ayah numbers, or authentic Hadith collections accurately when referencing scripture."
+        "\nCRITICAL DEBATE & EVIDENCE RULES:\n"
+        "1. Understand the exact religious claim or question asserted by the user. Stay strictly on topic. "
+        "2. DO NOT routinely answer difficult questions with vague phrases such as 'I am neutral', 'I am not on anyone's side', or 'Everyone has their own opinion' when scriptural evidence addresses the claim. State a clear, reasoned, evidence-based conclusion. "
+        "3. You have access to local database tools: ALWAYS call 'get_quran_evidence' to check and verify Quranic verses before asserting scripture. Cite Surah and Ayah numbers accurately and naturally (for example: 'Surah Al-Ikhlas, chapter 112, verse 1' or 'سورہ اخلاص، سورت نمبر 112، آیت نمبر 1'). "
+        "4. Explain explicitly WHY the evidence supports, contradicts, or does not establish the claim. Respectfully correct the user when warranted by verified evidence. "
+        "5. If a Hadith claim is asserted or requested, call 'check_hadith_evidence'. Honestly disclose that Daleel-e-Haq's local database currently indexes the complete 6,236 verses of the Quran, while offline Hadith collections are not yet installed in local storage, so Hadith references cannot be marked as verified against offline records. "
+        "6. NEVER fabricate scripture, Hadith collections, chains of narration, or scholarly consensus. "
+        "7. Never address the user as 'Korey', 'Corey', or any assumed name unless they explicitly introduced themselves by that name. "
+        "8. Converse fluently across English, Urdu, Hindi, Roman Urdu, and Punjabi. When the user speaks Urdu, Hindi, or Punjabi, respond in articulate, natural Urdu (Urdu script) without filler repetition or foreign words. When the user speaks English, respond in articulate English. "
+        "9. Do NOT speak markdown asterisks, hashtags, bullets, or symbols. Keep responses conversational, disciplined, and concise (2 to 4 clear spoken sentences per turn) so natural debate flow is maintained."
     )
 
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -124,7 +236,8 @@ async def debate_live_websocket(
         output_audio_transcription=types.AudioTranscriptionConfig(),
         system_instruction=types.Content(
             parts=[types.Part.from_text(text=system_instruction)]
-        )
+        ),
+        tools=[types.Tool(function_declarations=[quran_tool_decl, hadith_tool_decl])]
     )
 
     try:
@@ -140,6 +253,7 @@ async def debate_live_websocket(
             last_audio_time = asyncio.get_event_loop().time()
             turn_lock = asyncio.Lock()
             client_is_muted = False
+            session_ended = asyncio.Event()
 
             async def commit_user_audio_turn():
                 nonlocal last_audio_time
@@ -153,6 +267,8 @@ async def debate_live_websocket(
                     audio_bytes = bytes(current_turn_audio)
                     current_turn_audio.clear()
                     try:
+                        # Signal client that thinking / evidence checking has begun
+                        await websocket.send_json({"type": "state_change", "state": "thinking"})
                         part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/pcm;rate=16000")
                         await gemini_session.send_client_content(
                             turns=[types.Content(role="user", parts=[part])],
@@ -195,6 +311,7 @@ async def debate_live_websocket(
                                 async with turn_lock:
                                     current_turn_audio.clear()
                                     try:
+                                        await websocket.send_json({"type": "state_change", "state": "thinking"})
                                         await gemini_session.send_client_content(
                                             turns=[types.Content(role="user", parts=[types.Part.from_text(text=data["text"])])],
                                             turn_complete=True
@@ -206,6 +323,7 @@ async def debate_live_websocket(
                                 async with turn_lock:
                                     current_turn_audio.clear()
                                 await websocket.send_json({"type": "interrupted"})
+                                await websocket.send_json({"type": "state_change", "state": "user_turn"})
                             elif msg_type == "end":
                                 logger.info("Client ended live debate session.")
                                 break
@@ -217,8 +335,6 @@ async def debate_live_websocket(
                     pass
                 except Exception as e:
                     logger.warning(f"Error forwarding client audio: {e}")
-
-            session_ended = asyncio.Event()
 
             # Task 2: Auto-commit turn if user finishes speaking and goes silent for 2.0s
             async def auto_commit_silence_watcher():
@@ -233,20 +349,56 @@ async def debate_live_websocket(
                 except asyncio.CancelledError:
                     pass
 
-            # Task 3: Receive Gemini audio parts, captions, and turn events continuously across multiple turns
+            # Task 3: Receive Gemini audio parts, tool calls, captions, and turn events continuously
             async def forward_gemini_responses():
                 try:
                     while not session_ended.is_set():
                         async for response in gemini_session.receive():
+                            # 1. Server-side Function / Tool Calls
+                            if response.tool_call:
+                                await websocket.send_json({"type": "state_change", "state": "checking_evidence"})
+                                fn_responses = []
+                                for fc in response.tool_call.function_calls:
+                                    logger.info(f"Gemini Live requested tool call: {fc.name} args={fc.args}")
+                                    if fc.name == "get_quran_evidence":
+                                        result = handle_quran_lookup(fc.args or {})
+                                        # Emit evidence event to frontend for live evidence drawer
+                                        await websocket.send_json({
+                                            "type": "evidence_retrieved",
+                                            "source_type": "quran",
+                                            "evidence": result,
+                                            "is_verified": result.get("is_verified", False)
+                                        })
+                                    elif fc.name == "check_hadith_evidence":
+                                        result = handle_hadith_lookup(fc.args or {})
+                                        await websocket.send_json({
+                                            "type": "evidence_retrieved",
+                                            "source_type": "hadith",
+                                            "evidence": result,
+                                            "is_verified": False
+                                        })
+                                    else:
+                                        result = {"error": f"Unknown tool: {fc.name}"}
+
+                                    fn_responses.append(types.FunctionResponse(
+                                        id=fc.id,
+                                        name=fc.name,
+                                        response={"output": result}
+                                    ))
+
+                                if fn_responses:
+                                    await gemini_session.send_tool_response(function_responses=fn_responses)
+
                             sc = response.server_content
                             if not sc:
                                 continue
 
-                            # Interruption detection
+                            # 2. Interruption detection
                             if sc.interrupted:
                                 await websocket.send_json({"type": "interrupted"})
+                                await websocket.send_json({"type": "state_change", "state": "user_turn"})
 
-                            # Live input speech captions (user's speech)
+                            # 3. Live input speech captions (user's speech)
                             if sc.interim_input_transcription and sc.interim_input_transcription.text:
                                 await websocket.send_json({
                                     "type": "input_caption",
@@ -260,15 +412,17 @@ async def debate_live_websocket(
                                     "is_final": True
                                 })
 
-                            # Live output captions (AI spoken words)
+                            # 4. Live output captions (AI spoken words)
                             if sc.output_transcription and sc.output_transcription.text:
                                 await websocket.send_json({
                                     "type": "output_caption",
                                     "text": sc.output_transcription.text
                                 })
 
-                            # Spoken Audio Chunks (24kHz PCM)
+                            # 5. Spoken Audio Chunks (24kHz PCM)
                             if sc.model_turn and sc.model_turn.parts:
+                                # Signal that AI is speaking
+                                await websocket.send_json({"type": "state_change", "state": "assistant_speaking"})
                                 for part in sc.model_turn.parts:
                                     if part.inline_data and part.inline_data.data:
                                         b64_audio = base64.b64encode(part.inline_data.data).decode("ascii")
@@ -278,7 +432,7 @@ async def debate_live_websocket(
                                             "sample_rate": 24000
                                         })
 
-                            # Turn completion
+                            # 6. Turn completion
                             if sc.turn_complete:
                                 await websocket.send_json({"type": "turn_complete"})
                                 break

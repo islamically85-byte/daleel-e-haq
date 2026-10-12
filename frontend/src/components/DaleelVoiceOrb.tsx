@@ -1,16 +1,18 @@
-import React, { useEffect, useRef } from 'react';
-import { Mic, MicOff, Sparkles, Headphones, Radio } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import type { DebatePhase } from '../hooks/useLiveDebate';
 
 export interface DaleelVoiceOrbProps {
-  isAISpeaking: boolean;
-  isUserSpeaking: boolean;
-  isMuted: boolean;
-  isConnected: boolean;
-  isConnecting: boolean;
-  aiVolume: number; // 0..1
-  userVolume: number; // 0..1
-  bargeInMode: 'natural' | 'protected';
+  phase?: DebatePhase;
+  isAISpeaking?: boolean;
+  isUserSpeaking?: boolean;
+  isMuted?: boolean;
+  isConnected?: boolean;
+  isConnecting?: boolean;
+  aiVolume?: number; // 0..1
+  userVolume?: number; // 0..1
+  bargeInMode?: 'natural' | 'protected';
   size?: number;
+  onOrbClick?: () => void;
   onToggleMute?: () => void;
 }
 
@@ -20,7 +22,6 @@ interface Particle {
   speed: number;
   radius: number;
   baseAlpha: number;
-  alpha: number;
   hueOffset: number;
 }
 
@@ -32,20 +33,31 @@ interface ShockwaveRing {
 }
 
 export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
-  isAISpeaking,
-  isUserSpeaking,
-  isMuted,
-  isConnected,
-  isConnecting,
-  aiVolume,
-  userVolume,
-  bargeInMode,
+  phase,
+  isAISpeaking: propIsAISpeaking = false,
+  isUserSpeaking: propIsUserSpeaking = false,
+  isMuted = false,
+  isConnected = false,
+  isConnecting: propIsConnecting = false,
+  aiVolume = 0,
+  userVolume = 0,
+  bargeInMode = 'protected',
   size = 200,
+  onOrbClick,
   onToggleMute
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [orbDimension, setOrbDimension] = useState<number>(size);
 
-  // References for smooth animation values (attack/decay damping)
+  // Derive unified state from phase and legacy props
+  const isConnecting = phase === 'connecting' || propIsConnecting;
+  const isThinking = phase === 'thinking';
+  const isAISpeaking = phase === 'assistant_speaking' || propIsAISpeaking;
+  const isUserSpeaking = (phase === 'user_turn' && propIsUserSpeaking) || propIsUserSpeaking;
+  const isUserTurnIdle = phase === 'user_turn' && !propIsUserSpeaking;
+
+  // Smoothing refs
   const smoothedAiVolRef = useRef(0);
   const smoothedUserVolRef = useRef(0);
   const animTimeRef = useRef(0);
@@ -53,25 +65,45 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
   const particlesRef = useRef<Particle[]>([]);
   const lastShockwaveSpawnRef = useRef(0);
 
-  // Initialize floating spiritual dust particles
+  // ResizeObserver for container-relative responsive sizing
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        const available = Math.min(width || size, height || size);
+        if (available > 60) {
+          // Clamp between 150px and 240px
+          const clamped = Math.max(150, Math.min(240, Math.round(available)));
+          setOrbDimension(clamped);
+        }
+      }
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [size]);
+
+  // Initialize celestial particles
   useEffect(() => {
     const particles: Particle[] = [];
-    const count = 18;
+    const count = 20;
     for (let i = 0; i < count; i++) {
       particles.push({
-        angle: (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.3,
-        distance: 42 + Math.random() * 38,
-        speed: (0.004 + Math.random() * 0.006) * (i % 2 === 0 ? 1 : -1),
-        radius: 1.0 + Math.random() * 1.8,
-        baseAlpha: 0.25 + Math.random() * 0.45,
-        alpha: 0.3,
-        hueOffset: (Math.random() - 0.5) * 20
+        angle: (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4,
+        distance: 40 + Math.random() * 36,
+        speed: (0.003 + Math.random() * 0.005) * (i % 2 === 0 ? 1 : -1),
+        radius: 1.0 + Math.random() * 1.6,
+        baseAlpha: 0.2 + Math.random() * 0.4,
+        hueOffset: (Math.random() - 0.5) * 25
       });
     }
     particlesRef.current = particles;
   }, []);
 
-  // Main Canvas Rendering Loop
+  // Main Canvas Render Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -82,19 +114,18 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const render = () => {
-      // 1. Attack / Decay smoothing of incoming RMS levels
+      // 1. Attack / Decay Smoothing
       const targetAi = isAISpeaking ? aiVolume : 0;
       const targetUser = !isMuted && isUserSpeaking ? userVolume : 0;
 
-      // Asymmetric filter: fast attack, smooth decay
-      const aiAttack = 0.32;
+      const aiAttack = 0.35;
       const aiDecay = 0.12;
       smoothedAiVolRef.current +=
         targetAi > smoothedAiVolRef.current
           ? (targetAi - smoothedAiVolRef.current) * aiAttack
           : (targetAi - smoothedAiVolRef.current) * aiDecay;
 
-      const userAttack = 0.28;
+      const userAttack = 0.32;
       const userDecay = 0.14;
       smoothedUserVolRef.current +=
         targetUser > smoothedUserVolRef.current
@@ -108,14 +139,14 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
       animTimeRef.current += 0.024 * speedFactor;
       const time = animTimeRef.current;
 
-      const dpr = window.devicePixelRatio || 1;
-      const width = size;
-      const height = size;
+      // DPR clamped to 2.0 to conserve GPU memory and prevent high-DPI stutter
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
+      const width = orbDimension;
+      const height = orbDimension;
 
-      // Handle DPI scaling
-      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
+      if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
@@ -123,30 +154,23 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
       const cx = width / 2;
       const cy = height / 2;
 
-      // Base radius calculation
-      const baseRadius = 42 + smAi * 16 + smUser * 12;
+      // Base radius scaled to container dimension
+      const radiusScale = orbDimension / 200;
+      const baseRadius = (44 + smAi * 16 + smUser * 12) * radiusScale;
 
-      // 2. Shockwave generation during AI speech or User peak energy
+      // 2. Shockwave Spawn during AI Speech
       const now = performance.now();
-      if (!isMuted && isAISpeaking && smAi > 0.18 && now - lastShockwaveSpawnRef.current > 240) {
+      if (!isMuted && isAISpeaking && smAi > 0.16 && now - lastShockwaveSpawnRef.current > 240) {
         shockwavesRef.current.push({
           radius: baseRadius,
-          maxRadius: baseRadius + 38 + smAi * 35,
-          alpha: Math.min(0.65, 0.25 + smAi * 0.4),
-          velocity: 1.4 + smAi * 2.2
-        });
-        lastShockwaveSpawnRef.current = now;
-      } else if (!isMuted && isUserSpeaking && smUser > 0.22 && now - lastShockwaveSpawnRef.current > 260) {
-        shockwavesRef.current.push({
-          radius: baseRadius,
-          maxRadius: baseRadius + 32 + smUser * 30,
-          alpha: Math.min(0.6, 0.2 + smUser * 0.4),
-          velocity: 1.2 + smUser * 1.8
+          maxRadius: baseRadius + (36 + smAi * 36) * radiusScale,
+          alpha: Math.min(0.65, 0.22 + smAi * 0.42),
+          velocity: (1.3 + smAi * 2.2) * radiusScale
         });
         lastShockwaveSpawnRef.current = now;
       }
 
-      // 3. Render Expanding Shockwaves
+      // 3. Render Shockwaves
       for (let i = shockwavesRef.current.length - 1; i >= 0; i--) {
         const ring = shockwavesRef.current[i];
         ring.radius += ring.velocity;
@@ -161,67 +185,136 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, ring.radius, 0, Math.PI * 2);
-        if (isAISpeaking) {
-          ctx.strokeStyle = `rgba(18, 168, 134, ${currentAlpha.toFixed(3)})`;
-          ctx.lineWidth = 1.6 + (1 - progress) * 2;
-        } else {
-          ctx.strokeStyle = `rgba(59, 130, 246, ${currentAlpha.toFixed(3)})`;
-          ctx.lineWidth = 1.4 + (1 - progress) * 1.8;
-        }
+        ctx.strokeStyle = `rgba(18, 168, 134, ${currentAlpha.toFixed(3)})`;
+        ctx.lineWidth = (1.5 + (1 - progress) * 2.2) * radiusScale;
         ctx.stroke();
         ctx.restore();
       }
 
-      // 4. Ambient Aura / Glow Backlight
+      // 4. Ambient Halo / Backlight
       ctx.save();
-      const auraGradient = ctx.createRadialGradient(cx, cy, baseRadius * 0.5, cx, cy, baseRadius * 1.7);
+      const auraGradient = ctx.createRadialGradient(cx, cy, baseRadius * 0.4, cx, cy, baseRadius * 1.85);
+
       if (isMuted) {
-        auraGradient.addColorStop(0, 'rgba(239, 68, 68, 0.18)');
-        auraGradient.addColorStop(0.7, 'rgba(239, 68, 68, 0.04)');
+        auraGradient.addColorStop(0, 'rgba(239, 68, 68, 0.22)');
+        auraGradient.addColorStop(0.65, 'rgba(239, 68, 68, 0.05)');
         auraGradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
+      } else if (isThinking) {
+        // Celestial breathing golden-emerald aura
+        const pulse = 0.22 + Math.sin(time * 2.2) * 0.08;
+        auraGradient.addColorStop(0, `rgba(245, 158, 11, ${pulse})`);
+        auraGradient.addColorStop(0.5, `rgba(18, 168, 134, ${(pulse * 0.7).toFixed(3)})`);
+        auraGradient.addColorStop(1, 'rgba(18, 168, 134, 0)');
       } else if (isAISpeaking) {
-        const glowOpacity = Math.min(0.45, 0.18 + smAi * 0.35);
+        const glowOpacity = Math.min(0.48, 0.18 + smAi * 0.38);
         auraGradient.addColorStop(0, `rgba(18, 168, 134, ${glowOpacity})`);
-        auraGradient.addColorStop(0.6, `rgba(18, 168, 134, ${(glowOpacity * 0.4).toFixed(3)})`);
+        auraGradient.addColorStop(0.65, `rgba(52, 211, 153, ${(glowOpacity * 0.4).toFixed(3)})`);
         auraGradient.addColorStop(1, 'rgba(18, 168, 134, 0)');
       } else if (isUserSpeaking) {
-        const glowOpacity = Math.min(0.45, 0.16 + smUser * 0.35);
+        const glowOpacity = Math.min(0.48, 0.16 + smUser * 0.38);
         auraGradient.addColorStop(0, `rgba(59, 130, 246, ${glowOpacity})`);
-        auraGradient.addColorStop(0.6, `rgba(59, 130, 246, ${(glowOpacity * 0.4).toFixed(3)})`);
+        auraGradient.addColorStop(0.65, `rgba(96, 165, 250, ${(glowOpacity * 0.4).toFixed(3)})`);
         auraGradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+      } else if (isUserTurnIdle) {
+        // Serene ready blue-green aura
+        const pulse = 0.14 + Math.sin(time * 1.6) * 0.04;
+        auraGradient.addColorStop(0, `rgba(59, 130, 246, ${pulse})`);
+        auraGradient.addColorStop(0.6, `rgba(18, 168, 134, ${(pulse * 0.5).toFixed(3)})`);
+        auraGradient.addColorStop(1, 'rgba(18, 168, 134, 0)');
       } else if (isConnecting) {
-        auraGradient.addColorStop(0, 'rgba(245, 158, 11, 0.22)');
-        auraGradient.addColorStop(0.7, 'rgba(245, 158, 11, 0.05)');
+        auraGradient.addColorStop(0, 'rgba(245, 158, 11, 0.25)');
+        auraGradient.addColorStop(0.65, 'rgba(245, 158, 11, 0.05)');
         auraGradient.addColorStop(1, 'rgba(245, 158, 11, 0)');
       } else {
-        // Idle tranquil presence: breathing emerald luminescence
-        const breath = 0.12 + Math.sin(time * 1.4) * 0.05;
+        // Idle tranquil jade presence
+        const breath = 0.12 + Math.sin(time * 1.4) * 0.04;
         auraGradient.addColorStop(0, `rgba(18, 168, 134, ${breath})`);
-        auraGradient.addColorStop(0.7, `rgba(18, 168, 134, ${(breath * 0.3).toFixed(3)})`);
+        auraGradient.addColorStop(0.65, `rgba(18, 168, 134, ${(breath * 0.3).toFixed(3)})`);
         auraGradient.addColorStop(1, 'rgba(18, 168, 134, 0)');
       }
+
       ctx.fillStyle = auraGradient;
       ctx.beginPath();
-      ctx.arc(cx, cy, baseRadius * 1.7, 0, Math.PI * 2);
+      ctx.arc(cx, cy, baseRadius * 1.85, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
-      // 5. Floating Orbital Dust Particles
+      // 5. Thinking State: Dual Golden-Emerald Orbital Precession Rings
+      if (isThinking) {
+        ctx.save();
+        const precessionTime = time * 1.4;
+
+        // Ring 1: Warm Gold Precession Ring
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(0.38 + Math.sin(precessionTime * 0.5) * 0.2);
+        ctx.beginPath();
+        const ring1R = baseRadius * 1.35;
+        ctx.ellipse(0, 0, ring1R, ring1R * 0.36, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.7)';
+        ctx.lineWidth = 1.6 * radiusScale;
+        ctx.setLineDash([6, 4]);
+        ctx.lineDashOffset = -precessionTime * 12;
+        ctx.stroke();
+
+        // Orbital jewel node on ring 1
+        const orbNodeX = Math.cos(precessionTime * 2.0) * ring1R;
+        const orbNodeY = Math.sin(precessionTime * 2.0) * (ring1R * 0.36);
+        ctx.beginPath();
+        ctx.arc(orbNodeX, orbNodeY, 3.2 * radiusScale, 0, Math.PI * 2);
+        ctx.fillStyle = '#FCD34D';
+        ctx.shadowColor = '#F59E0B';
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.restore();
+
+        // Ring 2: Emerald Scripture Precession Ring (opposing tilt)
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-0.52 + Math.cos(precessionTime * 0.4) * 0.18);
+        ctx.beginPath();
+        const ring2R = baseRadius * 1.48;
+        ctx.ellipse(0, 0, ring2R, ring2R * 0.32, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(52, 211, 153, 0.65)';
+        ctx.lineWidth = 1.4 * radiusScale;
+        ctx.setLineDash([4, 5]);
+        ctx.lineDashOffset = precessionTime * 10;
+        ctx.stroke();
+
+        // Orbital jewel node on ring 2
+        const orbNode2X = Math.cos(-precessionTime * 1.7) * ring2R;
+        const orbNode2Y = Math.sin(-precessionTime * 1.7) * (ring2R * 0.32);
+        ctx.beginPath();
+        ctx.arc(orbNode2X, orbNode2Y, 2.8 * radiusScale, 0, Math.PI * 2);
+        ctx.fillStyle = '#6EE7B7';
+        ctx.shadowColor = '#10B981';
+        ctx.shadowBlur = 7;
+        ctx.fill();
+        ctx.restore();
+
+        ctx.restore();
+      }
+
+      // 6. Floating Celestial Dust Particles
       ctx.save();
       for (const p of particlesRef.current) {
         if (!isMuted && !prefersReducedMotion) {
-          p.angle += p.speed * (isAISpeaking ? 1.6 : 1.0);
+          p.angle += p.speed * (isAISpeaking ? 1.5 : isThinking ? 1.8 : 1.0);
         }
-        const px = cx + Math.cos(p.angle) * (p.distance + smAi * 8 + smUser * 6);
-        const py = cy + Math.sin(p.angle) * (p.distance + smAi * 8 + smUser * 6);
+        const dist = (p.distance + smAi * 8 + smUser * 6) * radiusScale;
+        const px = cx + Math.cos(p.angle) * dist;
+        const py = cy + Math.sin(p.angle) * dist;
 
         ctx.beginPath();
-        ctx.arc(px, py, p.radius, 0, Math.PI * 2);
+        ctx.arc(px, py, p.radius * radiusScale, 0, Math.PI * 2);
+
         if (isMuted) {
           ctx.fillStyle = `rgba(239, 68, 68, ${p.baseAlpha * 0.4})`;
+        } else if (isThinking) {
+          ctx.fillStyle = `rgba(252, 211, 77, ${Math.min(0.9, p.baseAlpha + 0.3)})`;
         } else if (isAISpeaking) {
           ctx.fillStyle = `rgba(52, 211, 153, ${Math.min(0.85, p.baseAlpha + smAi * 0.4)})`;
-        } else if (isUserSpeaking) {
+        } else if (isUserSpeaking || isUserTurnIdle) {
           ctx.fillStyle = `rgba(147, 197, 253, ${Math.min(0.85, p.baseAlpha + smUser * 0.4)})`;
         } else {
           ctx.fillStyle = `rgba(18, 168, 134, ${p.baseAlpha})`;
@@ -230,19 +323,37 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
       }
       ctx.restore();
 
-      // 6. Fluid Organic Harmonic Wave Core
+      // 7. Organic Fluid Harmonic Wave Core
       const points = 72;
-      const amp1 = prefersReducedMotion ? 0.5 : isMuted ? 0.3 : 1.2 + smAi * 11 + smUser * 9;
-      const amp2 = prefersReducedMotion ? 0.3 : isMuted ? 0.2 : 0.8 + smAi * 8 + smUser * 6;
-      const amp3 = prefersReducedMotion ? 0.2 : isMuted ? 0.1 : 0.5 + smAi * 6;
+      const amp1 = prefersReducedMotion
+        ? 0.4
+        : isMuted
+          ? 0.2
+          : isThinking
+            ? 1.5 + Math.sin(time * 3.0) * 1.0
+            : 1.0 + smAi * 11 + smUser * 9;
+      const amp2 = prefersReducedMotion
+        ? 0.2
+        : isMuted
+          ? 0.1
+          : isThinking
+            ? 1.0 + Math.cos(time * 2.5) * 0.7
+            : 0.7 + smAi * 8 + smUser * 6;
+      const amp3 = prefersReducedMotion
+        ? 0.1
+        : isMuted
+          ? 0.05
+          : isThinking
+            ? 0.8
+            : 0.4 + smAi * 5;
 
       ctx.save();
       ctx.beginPath();
       for (let i = 0; i <= points; i++) {
         const theta = (i / points) * Math.PI * 2;
-        const wave1 = Math.sin(theta * 3 + time * 3.0) * amp1;
-        const wave2 = Math.cos(theta * 5 - time * 2.2) * amp2;
-        const wave3 = Math.sin(theta * 7 + time * 4.1) * amp3;
+        const wave1 = Math.sin(theta * 3 + time * 2.8) * amp1 * radiusScale;
+        const wave2 = Math.cos(theta * 5 - time * 2.1) * amp2 * radiusScale;
+        const wave3 = Math.sin(theta * 7 + time * 3.8) * amp3 * radiusScale;
         const r = baseRadius + wave1 + wave2 + wave3;
 
         const x = cx + Math.cos(theta) * r;
@@ -256,12 +367,26 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
       }
       ctx.closePath();
 
-      // Core Radial Gradient
-      const coreGrad = ctx.createRadialGradient(cx - 8, cy - 8, 2, cx, cy, baseRadius);
+      // Core Gradient Fill
+      const coreGrad = ctx.createRadialGradient(
+        cx - 8 * radiusScale,
+        cy - 8 * radiusScale,
+        2 * radiusScale,
+        cx,
+        cy,
+        baseRadius
+      );
+
       if (isMuted) {
-        coreGrad.addColorStop(0, '#7F1D1D');
-        coreGrad.addColorStop(0.65, '#991B1B');
+        coreGrad.addColorStop(0, '#991B1B');
+        coreGrad.addColorStop(0.6, '#7F1D1D');
         coreGrad.addColorStop(1, '#450A0A');
+      } else if (isThinking) {
+        // Celestial amber-gold and emerald fusion
+        coreGrad.addColorStop(0, '#FCD34D');
+        coreGrad.addColorStop(0.35, '#F59E0B');
+        coreGrad.addColorStop(0.7, '#12A886');
+        coreGrad.addColorStop(1, '#064E3B');
       } else if (isAISpeaking) {
         coreGrad.addColorStop(0, '#34D399');
         coreGrad.addColorStop(0.45, '#12A886');
@@ -272,6 +397,11 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
         coreGrad.addColorStop(0.45, '#3B82F6');
         coreGrad.addColorStop(0.85, '#1D4ED8');
         coreGrad.addColorStop(1, '#1E3A8A');
+      } else if (isUserTurnIdle) {
+        coreGrad.addColorStop(0, '#93C5FD');
+        coreGrad.addColorStop(0.45, '#2563EB');
+        coreGrad.addColorStop(0.85, '#1E40AF');
+        coreGrad.addColorStop(1, '#0F172A');
       } else if (isConnecting) {
         coreGrad.addColorStop(0, '#FCD34D');
         coreGrad.addColorStop(0.5, '#F59E0B');
@@ -287,32 +417,51 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
       ctx.fillStyle = coreGrad;
       ctx.fill();
 
-      // Outer boundary rim stroke
+      // Outer Boundary Rim Stroke
       if (isMuted) {
         ctx.strokeStyle = 'rgba(239, 68, 68, 0.65)';
-        ctx.lineWidth = 1.8;
+        ctx.lineWidth = 1.8 * radiusScale;
+      } else if (isThinking) {
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.85)';
+        ctx.lineWidth = 2.4 * radiusScale;
       } else if (isAISpeaking) {
         ctx.strokeStyle = `rgba(52, 211, 153, ${(0.6 + smAi * 0.4).toFixed(3)})`;
-        ctx.lineWidth = 2.2 + smAi * 2.0;
+        ctx.lineWidth = (2.2 + smAi * 2.0) * radiusScale;
       } else if (isUserSpeaking) {
         ctx.strokeStyle = `rgba(96, 165, 250, ${(0.6 + smUser * 0.4).toFixed(3)})`;
-        ctx.lineWidth = 2.0 + smUser * 1.8;
+        ctx.lineWidth = (2.0 + smUser * 1.8) * radiusScale;
+      } else if (isUserTurnIdle) {
+        ctx.strokeStyle = 'rgba(59, 130, 246, 0.65)';
+        ctx.lineWidth = 1.8 * radiusScale;
       } else {
-        ctx.strokeStyle = 'rgba(18, 168, 134, 0.45)';
-        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = 'rgba(18, 168, 134, 0.5)';
+        ctx.lineWidth = 1.6 * radiusScale;
       }
       ctx.stroke();
       ctx.restore();
 
-      // 7. Dynamic Specular Highlights & Glint
+      // 8. Elegant Optical Specular Glint & Glass Reflection
       ctx.save();
-      const glintGrad = ctx.createLinearGradient(cx - baseRadius * 0.6, cy - baseRadius * 0.6, cx, cy);
-      glintGrad.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
-      glintGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.08)');
+      const glintGrad = ctx.createLinearGradient(
+        cx - baseRadius * 0.6,
+        cy - baseRadius * 0.6,
+        cx,
+        cy
+      );
+      glintGrad.addColorStop(0, 'rgba(255, 255, 255, 0.38)');
+      glintGrad.addColorStop(0.45, 'rgba(255, 255, 255, 0.08)');
       glintGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
       ctx.fillStyle = glintGrad;
       ctx.beginPath();
-      ctx.ellipse(cx - baseRadius * 0.28, cy - baseRadius * 0.32, baseRadius * 0.42, baseRadius * 0.22, -Math.PI / 4, 0, Math.PI * 2);
+      ctx.ellipse(
+        cx - baseRadius * 0.28,
+        cy - baseRadius * 0.32,
+        baseRadius * 0.42,
+        baseRadius * 0.22,
+        -Math.PI / 4,
+        0,
+        Math.PI * 2
+      );
       ctx.fill();
       ctx.restore();
 
@@ -324,31 +473,55 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
     return () => {
       cancelAnimationFrame(animationFrameId);
     };
-  }, [isAISpeaking, isUserSpeaking, isMuted, isConnected, isConnecting, aiVolume, userVolume, size]);
+  }, [
+    isThinking,
+    isAISpeaking,
+    isUserSpeaking,
+    isUserTurnIdle,
+    isMuted,
+    isConnected,
+    isConnecting,
+    aiVolume,
+    userVolume,
+    orbDimension
+  ]);
+
+  const handleOrbClick = () => {
+    if (onOrbClick) {
+      onOrbClick();
+    } else if (onToggleMute) {
+      onToggleMute();
+    }
+  };
+
+  const getAriaLabel = () => {
+    if (isMuted) return 'Microphone muted';
+    if (isThinking) return 'Daleel-e-Haq is verifying evidence and scripture';
+    if (isAISpeaking) return 'Daleel-e-Haq is speaking';
+    if (isUserSpeaking) return 'Listening to user voice';
+    if (isUserTurnIdle) return 'Your turn to speak';
+    if (isConnecting) return 'Connecting to live session';
+    return 'Daleel-e-Haq voice orb ready';
+  };
 
   return (
     <div
+      ref={containerRef}
+      onClick={handleOrbClick}
       style={{
         position: 'relative',
-        width: `${size}px`,
-        height: `${size}px`,
+        width: `${orbDimension}px`,
+        height: `${orbDimension}px`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        userSelect: 'none'
+        userSelect: 'none',
+        cursor: onOrbClick || onToggleMute ? 'pointer' : 'default',
+        transition: 'transform 180ms ease'
       }}
       role="img"
-      aria-label={
-        isMuted
-          ? 'Microphone muted'
-          : isAISpeaking
-            ? 'Daleel-e-Haq is speaking'
-            : isUserSpeaking
-              ? 'Listening to user voice'
-              : isConnecting
-                ? 'Connecting to live session'
-                : 'Live voice orb ready'
-      }
+      aria-label={getAriaLabel()}
+      title={onToggleMute ? (isMuted ? 'Click to unmute' : 'Click to mute') : undefined}
     >
       {/* HTML5 Canvas Surface */}
       <canvas
@@ -357,89 +530,52 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
           position: 'absolute',
           inset: 0,
           pointerEvents: 'none',
-          filter: isAISpeaking
-            ? 'drop-shadow(0 0 16px rgba(18, 168, 134, 0.4))'
-            : isUserSpeaking
-              ? 'drop-shadow(0 0 14px rgba(59, 130, 246, 0.35))'
-              : isMuted
-                ? 'drop-shadow(0 0 10px rgba(239, 68, 68, 0.25))'
-                : 'drop-shadow(0 0 10px rgba(18, 168, 134, 0.2))',
-          transition: 'filter 140ms ease'
+          filter: isThinking
+            ? 'drop-shadow(0 0 20px rgba(245, 158, 11, 0.4))'
+            : isAISpeaking
+              ? 'drop-shadow(0 0 18px rgba(18, 168, 134, 0.45))'
+              : isUserSpeaking
+                ? 'drop-shadow(0 0 16px rgba(59, 130, 246, 0.4))'
+                : isMuted
+                  ? 'drop-shadow(0 0 12px rgba(239, 68, 68, 0.3))'
+                  : 'drop-shadow(0 0 12px rgba(18, 168, 134, 0.25))',
+          transition: 'filter 200ms ease'
         }}
       />
 
-      {/* Central Symbolic Icon Anchor */}
-      <div
-        onClick={onToggleMute}
-        style={{
-          position: 'relative',
-          zIndex: 2,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: '52px',
-          height: '52px',
-          borderRadius: '50%',
-          backgroundColor: isMuted
-            ? 'rgba(0, 0, 0, 0.45)'
-            : 'rgba(0, 0, 0, 0.25)',
-          backdropFilter: 'blur(4px)',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
-          color: isMuted
-            ? '#EF4444'
-            : isAISpeaking
-              ? '#FFFFFF'
-              : isUserSpeaking
-                ? '#93C5FD'
-                : isConnecting
-                  ? '#FBBF24'
-                  : 'rgba(255, 255, 255, 0.9)',
-          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.3)',
-          cursor: onToggleMute ? 'pointer' : 'default',
-          transition: 'all 120ms ease'
-        }}
-        title={onToggleMute ? (isMuted ? 'Click to unmute' : 'Click to mute') : undefined}
-      >
-        {isMuted ? (
-          <MicOff size={26} strokeWidth={2.2} />
-        ) : isAISpeaking ? (
-          <Sparkles size={26} strokeWidth={2.2} />
-        ) : isUserSpeaking ? (
-          <Mic size={26} strokeWidth={2.2} />
-        ) : isConnecting ? (
-          <Radio size={24} strokeWidth={2.2} className="animate-spin" />
-        ) : (
-          <Headphones size={26} strokeWidth={2.2} />
-        )}
-      </div>
-
-      {/* Subtle Barge-in Mode Indicator Badge */}
+      {/* Subtle Bottom Mode Badge (Non-intrusive) */}
       <div
         style={{
           position: 'absolute',
-          bottom: '8px',
+          bottom: '4px',
           zIndex: 3,
           fontSize: '0.65rem',
           fontWeight: 600,
           padding: '2px 8px',
           borderRadius: '10px',
           backgroundColor:
-            bargeInMode === 'protected'
-              ? 'rgba(59, 130, 246, 0.2)'
-              : 'rgba(18, 168, 134, 0.2)',
+            isMuted
+              ? 'rgba(239, 68, 68, 0.2)'
+              : bargeInMode === 'protected'
+                ? 'rgba(59, 130, 246, 0.2)'
+                : 'rgba(18, 168, 134, 0.2)',
           color:
-            bargeInMode === 'protected'
-              ? '#93C5FD'
-              : '#6EE7B7',
+            isMuted
+              ? '#F87171'
+              : bargeInMode === 'protected'
+                ? '#93C5FD'
+                : '#6EE7B7',
           border:
-            bargeInMode === 'protected'
-              ? '1px solid rgba(59, 130, 246, 0.35)'
-              : '1px solid rgba(18, 168, 134, 0.35)',
+            isMuted
+              ? '1px solid rgba(239, 68, 68, 0.35)'
+              : bargeInMode === 'protected'
+                ? '1px solid rgba(59, 130, 246, 0.35)'
+                : '1px solid rgba(18, 168, 134, 0.35)',
           letterSpacing: '0.02em',
           pointerEvents: 'none'
         }}
       >
-        {bargeInMode === 'protected' ? '🛡️ Protected' : '🌿 Natural'}
+        {isMuted ? '🔇 Muted' : bargeInMode === 'protected' ? '🛡️ Protected' : '🌿 Natural'}
       </div>
     </div>
   );

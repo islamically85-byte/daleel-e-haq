@@ -11,29 +11,73 @@ export interface DebateTurn {
   timestamp: string;
 }
 
+export type DebatePhase =
+  | 'idle'
+  | 'connecting'
+  | 'user_turn'
+  | 'thinking'
+  | 'assistant_speaking';
+
+export interface LiveEvidenceItem {
+  source_id?: string;
+  source_type?: 'quran' | 'hadith';
+  surah_number?: number;
+  ayah_number?: number;
+  surah_name_en?: string;
+  surah_name_ar?: string;
+  text_ar?: string;
+  translation_en?: string;
+  translation_ur?: string;
+  citation?: string;
+  is_verified?: boolean;
+  status?: string;
+  message?: string;
+  limitation_disclosure?: string;
+  verses?: any[];
+}
+
 interface UseLiveDebateOptions {
   onSessionSaved?: (debateId: string) => void;
 }
 
+const STORAGE_TURNS_KEY = 'daleel_live_debate_turns';
+
 export function useLiveDebate(options?: UseLiveDebateOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [phase, setPhase] = useState<DebatePhase>('idle');
   const [isMuted, setIsMuted] = useState(false);
   const [isAISpeaking, setIsAISpeaking] = useState(false);
   const [isUserSpeaking, setIsUserSpeaking] = useState(false);
   const [userVolume, setUserVolume] = useState(0);
   const [aiVolume, setAiVolume] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [turns, setTurns] = useState<DebateTurn[]>([]);
-  const [bargeInMode, setBargeInMode] = useState<'natural' | 'protected'>('natural');
+  const [bargeInMode, setBargeInMode] = useState<'natural' | 'protected'>('protected');
+  const [liveEvidence, setLiveEvidence] = useState<LiveEvidenceItem[]>([]);
+
+  // Persistent turns across page refresh
+  const [turns, setTurns] = useState<DebateTurn[]>(() => {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_TURNS_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const wsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const isMutedRef = useRef(false);
-  const bargeInModeRef = useRef<'natural' | 'protected'>('natural');
+  const bargeInModeRef = useRef<'natural' | 'protected'>('protected');
+  const phaseRef = useRef<DebatePhase>('idle');
   const preRollBufferRef = useRef<ArrayBuffer[]>([]);
+
+  const setPhaseSafe = useCallback((p: DebatePhase) => {
+    phaseRef.current = p;
+    setPhase(p);
+  }, []);
 
   const setBargeInModeSafe = useCallback((mode: 'natural' | 'protected') => {
     bargeInModeRef.current = mode;
@@ -49,6 +93,13 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
 
   useEffect(() => {
     turnsRef.current = turns;
+    try {
+      if (turns.length > 0) {
+        sessionStorage.setItem(STORAGE_TURNS_KEY, JSON.stringify(turns));
+      } else {
+        sessionStorage.removeItem(STORAGE_TURNS_KEY);
+      }
+    } catch {}
   }, [turns]);
 
   const isAiSpeakingRef = useRef(false);
@@ -56,7 +107,10 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   const setAiSpeakingState = useCallback((speaking: boolean) => {
     isAiSpeakingRef.current = speaking;
     setIsAISpeaking(speaking);
-  }, []);
+    if (speaking) {
+      setPhaseSafe('assistant_speaking');
+    }
+  }, [setPhaseSafe]);
 
   const stopAiPlayback = useCallback(() => {
     activeSourcesRef.current.forEach((src) => {
@@ -118,14 +172,17 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         if (idx !== -1) {
           activeSourcesRef.current.splice(idx, 1);
         }
+        // When the final queued audio chunk finishes playing on the speakers:
         if (activeSourcesRef.current.length === 0) {
           setAiSpeakingState(false);
+          // Turn smoothly and automatically returns to the user!
+          setPhaseSafe('user_turn');
         }
       };
     } catch (e) {
       console.warn('Error playing PCM audio chunk:', e);
     }
-  }, [setAiSpeakingState]);
+  }, [setAiSpeakingState, setPhaseSafe]);
 
   const cleanupAudio = useCallback(() => {
     stopAiPlayback();
@@ -164,7 +221,8 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     setIsAISpeaking(false);
     setIsConnected(false);
     setIsConnecting(false);
-  }, [stopAiPlayback]);
+    setPhaseSafe('idle');
+  }, [stopAiPlayback, setPhaseSafe]);
 
   useEffect(() => {
     return () => {
@@ -201,21 +259,23 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   const interrupt = useCallback(() => {
     stopAiPlayback();
     preRollBufferRef.current = [];
+    setPhaseSafe('user_turn');
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
         wsRef.current.send(JSON.stringify({ type: 'interrupt' }));
       } catch {}
     }
-  }, [stopAiPlayback]);
+  }, [stopAiPlayback, setPhaseSafe]);
 
   const startSession = useCallback(async (customVoice?: string, customLanguage?: string) => {
     setError(null);
     setIsConnecting(true);
-    setTurns([]);
+    setPhaseSafe('connecting');
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError('Microphone capture is not supported in this browser.');
       setIsConnecting(false);
+      setPhaseSafe('idle');
       return;
     }
 
@@ -265,7 +325,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       animationFrameRef.current = requestAnimationFrame(updateVolumeLoop);
 
       // 3. Connect to /api/ws/debate-live
-      const selectedVoice = customVoice || voicePreferences.getSelectedVoice() || 'Puck';
+      const selectedVoice = customVoice || voicePreferences.getSelectedVoice() || 'Kore';
       const selectedLang = customLanguage || 'auto';
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/api/ws/debate-live?voice=${encodeURIComponent(selectedVoice)}&language=${encodeURIComponent(selectedLang)}`;
@@ -276,16 +336,39 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       ws.onopen = () => {
         setIsConnecting(false);
         setIsConnected(true);
+        setPhaseSafe('user_turn');
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
 
-          if (data.type === 'audio') {
+          if (data.type === 'ready') {
+            setPhaseSafe('user_turn');
+          } else if (data.type === 'state_change') {
+            if (data.state === 'thinking' || data.state === 'checking_evidence') {
+              setPhaseSafe('thinking');
+            } else if (data.state === 'assistant_speaking') {
+              setPhaseSafe('assistant_speaking');
+            } else if (data.state === 'user_turn') {
+              setPhaseSafe('user_turn');
+            }
+          } else if (data.type === 'evidence_retrieved') {
+            if (data.evidence) {
+              setLiveEvidence((prev) => {
+                const ev = data.evidence;
+                const id = ev.source_id || `${ev.surah_number}:${ev.ayah_number}` || String(Date.now());
+                if (prev.some((e) => (e.source_id || `${e.surah_number}:${e.ayah_number}`) === id)) {
+                  return prev;
+                }
+                return [...prev, ev];
+              });
+            }
+          } else if (data.type === 'audio') {
             playPcmChunk(data.data, data.sample_rate || 24000);
           } else if (data.type === 'interrupted') {
             stopAiPlayback();
+            setPhaseSafe('user_turn');
           } else if (data.type === 'output_caption') {
             const textChunk = data.text || '';
             if (textChunk) {
@@ -346,7 +429,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
               });
             }
           } else if (data.type === 'turn_complete') {
-            // AI finished spoken turn
+            // Handled when local audio finishes playing
           } else if (data.type === 'error') {
             setError(data.message || 'Live debate server error occurred.');
             cleanupAudio();
@@ -419,21 +502,21 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         const now = Date.now();
         const pcmBuffer = downsampleAndConvertToPCM16(inputData, audioCtx.sampleRate, 16000);
 
-        // 2. Interruption & Stream Gating Logic
-        if (isAiSpeakingRef.current) {
-          // When AI is speaking:
-          // In 'protected' mode: Never stream background audio and never allow auto-barge-in!
-          // Interruption is only triggered via the manual Interrupt button.
+        // 2. Interruption & Stream Gating Logic during thinking or speaking
+        const isAssistantBusy = phaseRef.current === 'thinking' || phaseRef.current === 'assistant_speaking' || isAiSpeakingRef.current;
+
+        if (isAssistantBusy) {
+          // In 'protected' mode (DEFAULT):
+          // Microphone audio is NEVER submitted to Gemini while thinking or speaking.
+          // Automatic barge-in is suppressed; interruption is ONLY via the dedicated Interrupt button.
           if (bargeInModeRef.current === 'protected') {
             bargeInConsecutiveFrames = 0;
             preRollBufferRef.current = [];
-            // Do NOT stream audio to WebSocket
             return;
           }
 
-          // In 'natural' mode:
+          // In optional 'natural' mode:
           // Guard against speaker echo and background noise.
-          // Intentional speech must have elevated energy AND voice-like ZCR.
           const isIntentionalVoice = rms > bargeInThreshold && isVoiceLike;
           if (isIntentionalVoice) {
             bargeInConsecutiveFrames++;
@@ -455,6 +538,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
             hasSpokenInCurrentTurn = true;
             userSpeechStartedAt = now - 340;
             userSilenceStartedAt = 0;
+            setPhaseSafe('user_turn');
 
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
               // 1. Send interruption signal
@@ -466,11 +550,10 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
               }
             }
           }
-          // Do NOT stream unapproved audio frames to Gemini while waiting to verify voice!
           return;
         }
 
-        // 3. Normal Conversational Mode (AI is not speaking)
+        // 3. User's Turn Mode (Microphone actively participating)
         bargeInConsecutiveFrames = 0;
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -501,7 +584,8 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
             if (hasSpokenInCurrentTurn) {
               if (!userSilenceStartedAt) userSilenceStartedAt = now;
               if (now - userSilenceStartedAt > 1800) {
-                // User spoke sustained argument and paused for 1.8s -> commit turn
+                // User spoke sustained argument and paused for 1.8s -> commit turn & shift to thinking
+                setPhaseSafe('thinking');
                 wsRef.current.send(JSON.stringify({ type: 'turn_complete' }));
                 hasSpokenInCurrentTurn = false;
                 userSpeechStartedAt = 0;
@@ -516,7 +600,6 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         }
       };
 
-
       source.connect(processor);
       processor.connect(audioCtx.destination);
     } catch (err: any) {
@@ -527,18 +610,22 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       }
       cleanupAudio();
     }
-  }, [playPcmChunk, stopAiPlayback, cleanupAudio]);
+  }, [playPcmChunk, stopAiPlayback, cleanupAudio, setPhaseSafe]);
 
   const finishTurnManual = useCallback(() => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'turn_complete' }));
+    if (phaseRef.current === 'user_turn') {
+      setPhaseSafe('thinking');
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'turn_complete' }));
+      }
     }
-  }, []);
+  }, [setPhaseSafe]);
 
   const sendTextTurn = useCallback((text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      setPhaseSafe('thinking');
       wsRef.current.send(JSON.stringify({ type: 'text_turn', text: trimmed }));
       setTurns((prev) => [
         ...prev,
@@ -551,7 +638,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         }
       ]);
     }
-  }, []);
+  }, [setPhaseSafe]);
 
   const endSession = useCallback(async () => {
     const recordedTurns = turnsRef.current;
@@ -584,15 +671,23 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     }
   }, [cleanupAudio, options]);
 
+  const clearHistory = useCallback(() => {
+    setTurns([]);
+    setLiveEvidence([]);
+    sessionStorage.removeItem(STORAGE_TURNS_KEY);
+  }, []);
+
   return {
     isConnected,
     isConnecting,
+    phase,
     isMuted,
     isAISpeaking,
     isUserSpeaking,
     userVolume,
     aiVolume,
     turns,
+    liveEvidence,
     error,
     startSession,
     endSession,
@@ -600,6 +695,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     interrupt,
     finishTurnManual,
     sendTextTurn,
+    clearHistory,
     bargeInMode,
     setBargeInMode: setBargeInModeSafe,
     clearError: () => setError(null)

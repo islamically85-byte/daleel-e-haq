@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import type { NavTab } from './components/Navigation';
@@ -11,9 +11,25 @@ import { ReviewQueuePage } from './pages/ReviewQueuePage';
 import { api } from './services/api';
 import type { Conversation } from './types/api';
 
+const VALID_TABS: NavTab[] = ['ask', 'debate', 'library', 'history', 'queue', 'settings'];
+
+function getInitialTab(): NavTab {
+  try {
+    const hash = window.location.hash.replace('#', '') as NavTab;
+    if (VALID_TABS.includes(hash)) {
+      return hash;
+    }
+    const saved = localStorage.getItem('daleel_active_tab') as NavTab;
+    if (VALID_TABS.includes(saved)) {
+      return saved;
+    }
+  } catch {}
+  return 'ask';
+}
+
 export function App() {
   const [language, setLanguage] = useState<'en' | 'ur'>('en');
-  const [activeTab, setActiveTab] = useState<NavTab>('ask');
+  const [activeTab, setActiveTabState] = useState<NavTab>(getInitialTab);
   const [activeModel, setActiveModel] = useState<string>('gemini-3.8-flash');
   const [isOnlineMode, setIsOnlineMode] = useState<boolean>(true);
   const [quranCount, setQuranCount] = useState<number>(6236);
@@ -22,6 +38,26 @@ export function App() {
   // Conversation history state managed at root
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+
+  const setActiveTab = useCallback((tab: NavTab) => {
+    setActiveTabState(tab);
+    try {
+      window.location.hash = tab;
+      localStorage.setItem('daleel_active_tab', tab);
+    } catch {}
+  }, []);
+
+  // Listen for browser back/forward or direct hash links
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '') as NavTab;
+      if (VALID_TABS.includes(hash)) {
+        setActiveTabState(hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   // Sync HTML dir and lang attributes
   useEffect(() => {

@@ -105,8 +105,8 @@ class CitationVerificationEngine:
     and guarantees that only local, approved scripture is presented as evidence.
     """
 
-    UNVERIFIED_NOTICE = "I cannot verify this claim from the approved Quran and Hadith sources currently available in Daleel-e-Haq."
-    UNVERIFIED_NOTICE_UR = "میں دلیلِ حق کے منظور شدہ قرآن اور حدیث کے ماخذ سے اس دعوے کی تصدیق نہیں کر سکتا۔"
+    UNVERIFIED_NOTICE = "I cannot verify this claim from the approved sources currently available in Daleel-e-Haq. The local database indexes the complete 6,236 Quranic verses; offline Hadith collections are not yet installed in local storage."
+    UNVERIFIED_NOTICE_UR = "دلیلِ حق کے منظور شدہ ماخذ میں فی الوقت قرآنِ کریم کی تمام 6,236 آیات محفوظ ہیں، جبکہ آف لائن حدیث کتب ابھی مقامی ڈیٹابیس میں انسٹال نہیں ہیں، اس لیے اس دعوے کی تصدیق نہیں کی جا سکتی۔"
 
     @classmethod
     def verify_pipeline(
