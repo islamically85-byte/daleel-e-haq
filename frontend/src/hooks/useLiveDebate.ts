@@ -77,10 +77,37 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sess_${Date.now()}`
   );
 
+  const ambientNoiseFloorRef = useRef<number>(0.008);
+  const preRollBufferRef = useRef<ArrayBuffer[]>([]);
+  const hasSpokenInTurnRef = useRef<boolean>(false);
+  const lastSpeechTimeRef = useRef<number>(0);
+  const aiInterruptFrameCountRef = useRef<number>(0);
+  const thinkingWatchdogTimerRef = useRef<any>(null);
+
+  const clearWatchdog = useCallback(() => {
+    if (thinkingWatchdogTimerRef.current) {
+      clearTimeout(thinkingWatchdogTimerRef.current);
+      thinkingWatchdogTimerRef.current = null;
+    }
+  }, []);
+
   const setPhaseSafe = useCallback((p: DebatePhase) => {
     phaseRef.current = p;
     setPhase(p);
-  }, []);
+    if (p === 'thinking') {
+      clearWatchdog();
+      thinkingWatchdogTimerRef.current = setTimeout(() => {
+        if (phaseRef.current === 'thinking') {
+          console.warn('Thinking watchdog: 12s expired without response. Resetting to user_turn.');
+          isServerTurnCompleteRef.current = true;
+          phaseRef.current = 'user_turn';
+          setPhase('user_turn');
+        }
+      }, 12000);
+    } else {
+      clearWatchdog();
+    }
+  }, [clearWatchdog]);
 
   // AI 24kHz PCM playback queue & AnalyserNode
   const nextPlayTimeRef = useRef(0);
@@ -188,6 +215,10 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   }, [setAiSpeakingState, setPhaseSafe]);
 
   const cleanupAudio = useCallback(() => {
+    clearWatchdog();
+    preRollBufferRef.current = [];
+    hasSpokenInTurnRef.current = false;
+    aiInterruptFrameCountRef.current = 0;
     stopAiPlayback();
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -224,7 +255,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     setIsConnected(false);
     setIsConnecting(false);
     setPhaseSafe('idle');
-  }, [stopAiPlayback, setPhaseSafe]);
+  }, [stopAiPlayback, setPhaseSafe, clearWatchdog]);
 
   useEffect(() => {
     return () => {
@@ -258,6 +289,10 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   }, []);
 
   const interrupt = useCallback(() => {
+    clearWatchdog();
+    preRollBufferRef.current = [];
+    hasSpokenInTurnRef.current = false;
+    aiInterruptFrameCountRef.current = 0;
     activeGenerationIdRef.current += 1;
     isServerTurnCompleteRef.current = true;
     stopAiPlayback();
@@ -270,7 +305,18 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         }));
       } catch {}
     }
-  }, [stopAiPlayback, setPhaseSafe]);
+  }, [stopAiPlayback, setPhaseSafe, clearWatchdog]);
+
+  const finishTurnManual = useCallback(() => {
+    if (phaseRef.current === 'user_turn') {
+      hasSpokenInTurnRef.current = false;
+      preRollBufferRef.current = [];
+      setPhaseSafe('thinking');
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'turn_complete' }));
+      }
+    }
+  }, [setPhaseSafe]);
 
   const startSession = useCallback(async (customVoice?: string, customLanguage?: string) => {
     setError(null);
@@ -283,6 +329,11 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     sessionStorage.removeItem(STORAGE_TURNS_KEY);
     activeGenerationIdRef.current = 1;
     isServerTurnCompleteRef.current = true;
+    ambientNoiseFloorRef.current = 0.008;
+    preRollBufferRef.current = [];
+    hasSpokenInTurnRef.current = false;
+    lastSpeechTimeRef.current = 0;
+    aiInterruptFrameCountRef.current = 0;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError('Microphone capture is not supported in this browser.');
@@ -402,6 +453,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
             if (data.generation_id && data.generation_id < activeGenerationIdRef.current) {
               return;
             }
+            clearWatchdog();
             isServerTurnCompleteRef.current = false;
             playPcmChunk(data.data, data.sample_rate || 24000);
           } else if (data.type === 'interrupted') {
@@ -525,13 +577,14 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       processor.connect(audioCtx.destination);
 
       let speechHangoverFrames = 0;
-      const NOISE_FLOOR = 0.012;
+      const PRE_ROLL_MAX = 3; // ~250ms circular pre-roll buffer
 
       processor.onaudioprocess = (e) => {
         // 1. Hard Mute Gate: zero out telemetry and halt transmission while muted
         if (isMutedRef.current) {
           setUserVolume(0);
           setIsUserSpeaking(false);
+          preRollBufferRef.current = [];
           return;
         }
 
@@ -539,13 +592,79 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         const rms = calculateRMSVolume(inputData);
         setUserVolume(rms);
 
-        const isSpeech = rms >= NOISE_FLOOR;
+        // Dynamically track ambient background noise floor during quiet periods
+        if (rms < ambientNoiseFloorRef.current * 1.8 || rms < 0.02) {
+          ambientNoiseFloorRef.current = 0.96 * ambientNoiseFloorRef.current + 0.04 * rms;
+        }
+        const noiseFloor = Math.max(0.005, Math.min(0.06, ambientNoiseFloorRef.current));
+        const dynamicSpeechThreshold = Math.max(0.014, noiseFloor * 2.2);
+
+        // If AI is currently speaking on speakers, elevate threshold with echo factor
+        const isAiCurrentlySpeaking = isAiSpeakingRef.current || activeSourcesRef.current.length > 0;
+        const effectiveThreshold = isAiCurrentlySpeaking
+          ? Math.max(dynamicSpeechThreshold * 1.85, aiVolumeRef.current * 0.22 + 0.028)
+          : dynamicSpeechThreshold;
+
+        const isSpeech = rms >= effectiveThreshold;
         setIsUserSpeaking(isSpeech);
+
+        const pcmBuffer = downsampleAndConvertToPCM16(inputData, audioCtx.sampleRate, 16000);
+
+        // Barge-in interruption during AI speech
+        if (isAiCurrentlySpeaking) {
+          if (isSpeech) {
+            aiInterruptFrameCountRef.current++;
+            // If user speaks intentionally for ~180ms (> 2 frames), interrupt AI speech
+            if (aiInterruptFrameCountRef.current >= 2) {
+              aiInterruptFrameCountRef.current = 0;
+              interrupt();
+            }
+          } else {
+            aiInterruptFrameCountRef.current = 0;
+          }
+          // Do not stream user mic audio while AI is actively speaking (prevents speaker echo)
+          return;
+        } else {
+          aiInterruptFrameCountRef.current = 0;
+        }
 
         if (isSpeech) {
           speechHangoverFrames = 4; // ~350ms hangover to preserve natural word endings
-        } else if (speechHangoverFrames > 0) {
-          speechHangoverFrames--;
+          lastSpeechTimeRef.current = Date.now();
+
+          // Flush pre-roll circular buffer on first detected speech frame of turn
+          if (!hasSpokenInTurnRef.current) {
+            hasSpokenInTurnRef.current = true;
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              while (preRollBufferRef.current.length > 0) {
+                const preRollChunk = preRollBufferRef.current.shift();
+                if (preRollChunk) {
+                  wsRef.current.send(preRollChunk);
+                }
+              }
+            }
+          }
+        } else {
+          if (speechHangoverFrames > 0) {
+            speechHangoverFrames--;
+          }
+
+          // Maintain circular pre-roll buffer when user is not actively speaking
+          preRollBufferRef.current.push(pcmBuffer);
+          if (preRollBufferRef.current.length > PRE_ROLL_MAX) {
+            preRollBufferRef.current.shift();
+          }
+
+          // Auto-commit silence trigger:
+          // If user was speaking in this turn and has been silent for 1.25s, automatically submit turn!
+          if (hasSpokenInTurnRef.current && phaseRef.current === 'user_turn' && speechHangoverFrames === 0) {
+            const silenceMs = Date.now() - lastSpeechTimeRef.current;
+            if (silenceMs >= 1250) {
+              hasSpokenInTurnRef.current = false;
+              finishTurnManual();
+              return;
+            }
+          }
         }
 
         // Noise Gate: Suppress silence/ambient noise frames
@@ -554,9 +673,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
           return;
         }
 
-        const pcmBuffer = downsampleAndConvertToPCM16(inputData, audioCtx.sampleRate, 16000);
-
-        // 2. Stream audio continuously to Gemini Live WebSocket
+        // Stream PCM audio chunk to WebSocket
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(pcmBuffer);
         }
@@ -569,20 +686,13 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       }
       cleanupAudio();
     }
-  }, [playPcmChunk, stopAiPlayback, cleanupAudio, setPhaseSafe]);
-
-  const finishTurnManual = useCallback(() => {
-    if (phaseRef.current === 'user_turn') {
-      setPhaseSafe('thinking');
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'turn_complete' }));
-      }
-    }
-  }, [setPhaseSafe]);
+  }, [playPcmChunk, stopAiPlayback, cleanupAudio, setPhaseSafe, interrupt, finishTurnManual]);
 
   const sendTextTurn = useCallback((text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    hasSpokenInTurnRef.current = false;
+    preRollBufferRef.current = [];
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       setPhaseSafe('thinking');
       wsRef.current.send(JSON.stringify({ type: 'text_turn', text: trimmed }));
@@ -618,7 +728,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
           raw_transcript: formattedTranscript,
           language: 'auto',
           topic: 'Live Theological Debate',
-          summary: `Recorded ${recordedTurns.length} spoken dialogue turns via gemini-3.8-live.`
+          summary: `Recorded ${recordedTurns.length} spoken dialogue turns.`
         });
 
         if (saveRes.debate_id) {

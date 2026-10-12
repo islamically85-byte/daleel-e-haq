@@ -219,12 +219,21 @@ async def debate_live_websocket(
     live bidirectional captions, server-side function calling for verified local evidence retrieval,
     turn-taking states, and interruption handling.
     """
+    # 1. Cross-Site WebSocket Hijacking (CSWSH) origin verification
+    client_origin = websocket.headers.get("origin")
+    if client_origin:
+        allowed = set(settings.cors_origins_list + ["http://localhost:5173", "http://127.0.0.1:5173", "testserver"])
+        if client_origin not in allowed and not any(client_origin.startswith(a) for a in allowed):
+            logger.warning(f"Forbidden WebSocket connection from unauthorized origin: {client_origin}")
+            await websocket.close(code=1008)
+            return
+
     await websocket.accept()
 
     if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY == "your_gemini_api_key_here":
         await websocket.send_json({
             "type": "error",
-            "message": "Gemini API key is not configured on the server."
+            "message": "Speech reasoning service is currently unavailable. Please configure backend environment."
         })
         await websocket.close(code=1008)
         return
@@ -319,14 +328,33 @@ async def debate_live_websocket(
                             "generation_id": active_generation_id
                         })
                         part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/pcm;rate=16000")
-                        await gemini_session.send_client_content(
-                            turns=[types.Content(role="user", parts=[part])],
-                            turn_complete=True
+                        await asyncio.wait_for(
+                            gemini_session.send_client_content(
+                                turns=[types.Content(role="user", parts=[part])],
+                                turn_complete=True
+                            ),
+                            timeout=20.0
                         )
+                    except asyncio.TimeoutError:
+                        logger.warning("Turn submission to Gemini Live timed out after 20s.")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Response took longer than expected. Please speak again."
+                        })
+                        await websocket.send_json({
+                            "type": "state_change",
+                            "state": "user_turn",
+                            "generation_id": active_generation_id
+                        })
                     except Exception as ex:
                         logger.warning(f"Error committing user audio turn: {ex}")
+                        await websocket.send_json({
+                            "type": "state_change",
+                            "state": "user_turn",
+                            "generation_id": active_generation_id
+                        })
 
-            # Task 1: Forward client audio chunks and control signals to Gemini (Native Streaming)
+            # Task 1: Forward client audio chunks and control signals to Gemini (Turn-Based PCM Model)
             async def forward_client_audio():
                 nonlocal client_is_muted, active_generation_id, last_audio_time
                 try:
@@ -347,13 +375,6 @@ async def debate_live_websocket(
                                 if len(current_turn_audio) > MAX_AUDIO_BYTES_PER_TURN:
                                     asyncio.create_task(commit_user_audio_turn())
                                     continue
-
-                            try:
-                                await gemini_session.send_realtime_input(
-                                    media={"data": audio_bytes, "mime_type": "audio/pcm;rate=16000"}
-                                )
-                            except Exception:
-                                pass
                         elif "text" in msg and msg["text"]:
                             data = json.loads(msg["text"])
                             msg_type = data.get("type")

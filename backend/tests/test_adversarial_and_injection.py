@@ -50,3 +50,23 @@ def test_adversarial_citation_fabrication_never_verified():
     assert validate_source_id("quran:200:5") is None
     assert validate_source_id("hadith:fake_isnad:999") is None
     assert validate_source_id("quran:2:287") is None # Baqarah only has 286 verses
+
+
+def test_security_response_headers():
+    res = client.get("/api/health")
+    assert res.status_code == 200
+    assert res.headers["x-content-type-options"] == "nosniff"
+    assert res.headers["x-frame-options"] == "DENY"
+    assert res.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert res.headers["permissions-policy"] == "microphone=(self)"
+
+
+def test_cswsh_origin_rejection():
+    # Attempt connecting to debate-live WebSocket from an unauthorized evil origin
+    with pytest.raises(Exception):
+        with client.websocket_connect(
+            "/api/ws/debate-live",
+            headers={"origin": "https://malicious-evil-attacker.com"}
+        ):
+            pass
+

@@ -235,7 +235,7 @@ export const VoiceOnboardingModal: React.FC<Props> = ({
               marginBottom: '0.65rem'
             }}
           >
-            {isUrdu ? 'دستیاب آوازیں (Gemini Voices):' : 'Available Gemini Voices:'}
+            {isUrdu ? 'دستیاب آوازیں (Debate Voices):' : 'Available Debate Voices:'}
           </span>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>

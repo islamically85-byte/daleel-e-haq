@@ -16,7 +16,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   language,
   onLanguageChange,
-  activeModel,
+  activeModel: _activeModel,
   isOnlineMode,
   providerConfigured = false,
   onToggleSidebar,
@@ -152,9 +152,6 @@ export const Header: React.FC<HeaderProps> = ({
               : providerConfigured
                 ? (isUrdu ? 'آن لائن ماڈل فعال' : 'Online AI Active')
                 : (isUrdu ? 'اے پی آئی غیر مرتب' : 'API Key Unconfigured')}
-          </span>
-          <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
-            ({activeModel.replace('gemini-', '')})
           </span>
         </div>
 

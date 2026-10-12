@@ -109,7 +109,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
           badgeColor: '#F59E0B',
           instruction: isUrdu
             ? 'سرور سے براہ راست صوتی رابطہ قائم ہو رہا ہے...'
-            : 'Connecting to gemini-3.8-live session...'
+            : 'Establishing live audio session...'
         };
       case 'thinking':
         return {
@@ -134,7 +134,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
             badgeColor: '#3B82F6',
             instruction: isUrdu
               ? 'اطمینان سے گفتگو فرمائیں؛ دلیلِ حق سن رہا ہے'
-              : 'Speaking detected. Speak freely; Gemini responds naturally.'
+              : 'Speaking detected. Speak freely; Daleel-e-Haq is listening.'
           };
         }
         return {
@@ -221,7 +221,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                   fontWeight: 600
                 }}
               >
-                gemini-3.8-live
+                {isUrdu ? 'براہِ راست مکالمہ' : 'Live Dialogue'}
               </span>
             </div>
             <div style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
@@ -369,7 +369,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               size={120}
             />
             <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
-              {isUrdu ? 'gemini-3.8-live سرور سے رابطہ قائم ہو رہا ہے...' : 'Connecting to gemini-3.8-live session...'}
+              {isUrdu ? 'براہِ راست صوتی سرور سے رابطہ قائم ہو رہا ہے...' : 'Connecting to live voice server...'}
             </span>
           </div>
         ) : (
@@ -674,6 +674,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
           style={{
             flex: 1,
             overflowY: 'auto',
+            overscrollBehavior: 'contain',
             padding: '0.85rem',
             display: 'flex',
             flexDirection: 'column',

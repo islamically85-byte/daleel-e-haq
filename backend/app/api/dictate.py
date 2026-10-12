@@ -154,12 +154,21 @@ async def dictate_websocket(
     and sends back real-time interim and final transcripts without locking session to one language.
     Never exposes Gemini API keys to the client.
     """
+    # Cross-Site WebSocket Hijacking (CSWSH) origin verification
+    client_origin = websocket.headers.get("origin")
+    if client_origin:
+        allowed = set(settings.cors_origins_list + ["http://localhost:5173", "http://127.0.0.1:5173", "testserver"])
+        if client_origin not in allowed and not any(client_origin.startswith(a) for a in allowed):
+            logger.warning(f"Forbidden dictate WebSocket from unauthorized origin: {client_origin}")
+            await websocket.close(code=1008)
+            return
+
     await websocket.accept()
 
     if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY == "your_gemini_api_key_here":
         await websocket.send_json({
             "type": "error",
-            "message": "Gemini API key is not configured on the server."
+            "message": "Dictation service is currently unavailable. Please configure backend environment."
         })
         await websocket.close(code=1008)
         return
