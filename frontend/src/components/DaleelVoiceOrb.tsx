@@ -41,7 +41,7 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
   isConnecting: propIsConnecting = false,
   aiVolume = 0,
   userVolume = 0,
-  bargeInMode = 'protected',
+  bargeInMode = 'natural',
   size = 200,
   onOrbClick,
   onToggleMute

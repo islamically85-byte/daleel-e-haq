@@ -245,7 +245,14 @@ async def debate_live_websocket(
         "6. NEVER fabricate scripture, Hadith collections, chains of narration, or scholarly consensus. "
         "7. Never address the user as 'Korey', 'Corey', or any assumed name unless they explicitly introduced themselves by that name. "
         "8. Converse fluently across English, Urdu, Hindi, Roman Urdu, and Punjabi. When the user speaks Urdu, Hindi, or Punjabi, respond in articulate, natural Urdu (Urdu script) without filler repetition or foreign words. When the user speaks English, respond in articulate English. "
-        "9. Do NOT speak markdown asterisks, hashtags, bullets, or symbols. Keep responses conversational, disciplined, and concise (2 to 4 clear spoken sentences per turn) so natural debate flow is maintained."
+        "9. Do NOT speak markdown asterisks, hashtags, bullets, or symbols. Keep responses conversational, disciplined, and concise (2 to 4 clear spoken sentences per turn) so natural debate flow is maintained. "
+        "\n10. NATURAL CONVERSATION & DIRECT OBJECTION HANDLING:\n"
+        "When the user interrupts mid-sentence, stop speaking immediately and listen attentively to their complete objection. "
+        "Respond DIRECTLY and specifically to the objection or question using the existing conversational context. "
+        "Do not repeat points already discussed from the beginning. "
+        "For example, if the user interrupts: 'Wait, explain the first verse instead' or 'ٹھہریں، پہلے پہلی آیت کی وضاحت کریں', "
+        "immediately focus on verse 1 of the Surah being discussed (e.g. Surah 112:1 - 'Say: He is Allah, the One' / قُلْ هُوَ اللَّهُ أَحَدٌ), "
+        "call 'get_quran_evidence' to verify, and explain its theological meaning directly and concisely."
     )
 
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -325,6 +332,7 @@ async def debate_live_websocket(
                                             "generation_id": active_generation_id
                                         })
                                         await gemini_session.send_realtime_input(audio_stream_end=True)
+                                        await gemini_session.send_client_content(turns=[], turn_complete=True)
                                     except Exception as ex:
                                         logger.warning(f"Error signaling audio stream end: {ex}")
                             elif msg_type == "text_turn" and data.get("text"):
@@ -342,8 +350,12 @@ async def debate_live_websocket(
                                 except Exception as ex:
                                     logger.warning(f"Error sending text turn: {ex}")
                             elif msg_type == "interrupt":
-                                logger.info("User interrupted live speech.")
-                                active_generation_id += 1
+                                client_gen = data.get("generation_id")
+                                if client_gen and isinstance(client_gen, int) and client_gen > active_generation_id:
+                                    active_generation_id = client_gen
+                                else:
+                                    active_generation_id += 1
+                                logger.info(f"User interrupted live speech. Active generation: {active_generation_id}")
                                 accumulated_turn_bytes = 0
                                 await websocket.send_json({
                                     "type": "interrupted",

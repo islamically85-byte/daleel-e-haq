@@ -43,6 +43,8 @@ htmlcov/
 *.sqlite3
 data/local/
 data/cache/
+backend/data/audio_cache/
+backend/data/audio_previews/
 *.log
 
 # Node & Frontend

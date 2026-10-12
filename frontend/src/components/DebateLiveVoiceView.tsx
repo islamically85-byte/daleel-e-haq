@@ -126,13 +126,13 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
           badge: isUrdu ? 'دلیلِ حق گفتگو کر رہا ہے' : 'Daleel-e-Haq is responding',
           badgeColor: 'var(--emerald-primary)',
           instruction:
-            bargeInMode === 'protected'
+            bargeInMode === 'natural'
               ? isUrdu
-                ? 'محفوظ موڈ: اپنی باری لینے کے لیے "بات روکیں" دبائیں'
-                : 'Protected Mode: Tap Interrupt anytime to take the floor'
+                ? 'قدرتی موڈ (طے شدہ): آپ بول کر بھی گفتگو کو نیا رخ دے سکتے ہیں'
+                : 'Natural Mode (Default): Speak clearly anytime to take the floor'
               : isUrdu
-                ? 'قدرتی موڈ: آپ بول کر بھی گفتگو کو نیا رخ دے سکتے ہیں'
-                : 'Natural Mode: Speak clearly to take the floor'
+                ? 'محفوظ موڈ (اختیاری): اپنی باری لینے کے لیے "بات روکیں" دبائیں'
+                : 'Protected Mode (Optional): Tap Interrupt anytime to take the floor'
         };
       case 'user_turn':
         if (isUserSpeaking) {
@@ -246,24 +246,6 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
             </span>
             <button
               type="button"
-              onClick={() => setBargeInMode('protected')}
-              className="btn btn-ghost"
-              style={{
-                padding: '0.2rem 0.55rem',
-                minHeight: '26px',
-                fontSize: '0.72rem',
-                borderRadius: '10px',
-                backgroundColor: bargeInMode === 'protected' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
-                color: bargeInMode === 'protected' ? '#3B82F6' : 'var(--text-secondary)',
-                border: bargeInMode === 'protected' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
-                fontWeight: bargeInMode === 'protected' ? 600 : 400
-              }}
-              title={isUrdu ? 'محفوظ موڈ (تجویز کردہ): بات روکنے کے لیے صرف بٹن دبائیں' : 'Protected Mode (Recommended): Uninterrupted turns, use Interrupt button'}
-            >
-              <span>{isUrdu ? '🛡️ محفوظ' : '🛡️ Protected'}</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setBargeInMode('natural')}
               className="btn btn-ghost"
               style={{
@@ -276,9 +258,27 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                 border: bargeInMode === 'natural' ? '1px solid rgba(18, 168, 134, 0.35)' : '1px solid transparent',
                 fontWeight: bargeInMode === 'natural' ? 600 : 400
               }}
-              title={isUrdu ? 'قدرتی موڈ: بول کر بھی روکا جا سکتا ہے' : 'Natural Mode: Vocal barge-in enabled'}
+              title={isUrdu ? 'قدرتی موڈ (طے شدہ): بول کر بھی روکا جا سکتا ہے' : 'Natural Mode (Default): Hands-free conversational barge-in; deliberate speech interrupts AI'}
             >
-              <span>{isUrdu ? '🌿 قدرتی' : '🌿 Natural'}</span>
+              <span>{isUrdu ? '🌿 قدرتی (طے شدہ)' : '🌿 Natural (Default)'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setBargeInMode('protected')}
+              className="btn btn-ghost"
+              style={{
+                padding: '0.2rem 0.55rem',
+                minHeight: '26px',
+                fontSize: '0.72rem',
+                borderRadius: '10px',
+                backgroundColor: bargeInMode === 'protected' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                color: bargeInMode === 'protected' ? '#3B82F6' : 'var(--text-secondary)',
+                border: bargeInMode === 'protected' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
+                fontWeight: bargeInMode === 'protected' ? 600 : 400
+              }}
+              title={isUrdu ? 'محفوظ موڈ (اختیاری): بات روکنے کے لیے صرف بٹن دبائیں' : 'Protected Mode (Optional): Uninterrupted turns, use Interrupt button'}
+            >
+              <span>{isUrdu ? '🛡️ محفوظ' : '🛡️ Protected'}</span>
             </button>
           </div>
 

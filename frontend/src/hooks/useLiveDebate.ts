@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { downsampleAndConvertToPCM16, calculateRMSVolume, calculateZCR } from '../services/audioUtils';
+import { downsampleAndConvertToPCM16, analyzeAudioFrame } from '../services/audioUtils';
 import { voicePreferences } from '../services/voicePreferences';
 import { api } from '../services/api';
 
@@ -52,7 +52,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   const [userVolume, setUserVolume] = useState(0);
   const [aiVolume, setAiVolume] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [bargeInMode, setBargeInMode] = useState<'natural' | 'protected'>('protected');
+  const [bargeInMode, setBargeInMode] = useState<'natural' | 'protected'>('natural');
   const [liveEvidence, setLiveEvidence] = useState<LiveEvidenceItem[]>([]);
 
   // Persistent turns across page refresh
@@ -70,11 +70,12 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const isMutedRef = useRef(false);
-  const bargeInModeRef = useRef<'natural' | 'protected'>('protected');
+  const bargeInModeRef = useRef<'natural' | 'protected'>('natural');
   const phaseRef = useRef<DebatePhase>('idle');
   const preRollBufferRef = useRef<ArrayBuffer[]>([]);
   const activeGenerationIdRef = useRef<number>(1);
   const isServerTurnCompleteRef = useRef<boolean>(true);
+  const aiVolumeRef = useRef<number>(0);
   const sessionIdRef = useRef<string>(
     typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sess_${Date.now()}`
   );
@@ -128,6 +129,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     if (audioContextRef.current) {
       nextPlayTimeRef.current = audioContextRef.current.currentTime;
     }
+    aiVolumeRef.current = 0;
     setAiSpeakingState(false);
     setAiVolume(0);
   }, [setAiSpeakingState]);
@@ -179,6 +181,8 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         }
         // When the final queued audio chunk finishes playing on the speakers:
         if (activeSourcesRef.current.length === 0) {
+          aiVolumeRef.current = 0;
+          setAiVolume(0);
           // Only return to user_turn if provider response has completed AND local audio queue has drained (P1 blocker 5)
           if (isServerTurnCompleteRef.current) {
             setAiSpeakingState(false);
@@ -271,7 +275,10 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     setPhaseSafe('user_turn');
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
-        wsRef.current.send(JSON.stringify({ type: 'interrupt' }));
+        wsRef.current.send(JSON.stringify({
+          type: 'interrupt',
+          generation_id: activeGenerationIdRef.current
+        }));
       } catch {}
     }
   }, [stopAiPlayback, setPhaseSafe]);
@@ -332,8 +339,11 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
             sum += dataArray[i];
           }
           const avg = sum / dataArray.length;
-          setAiVolume(Math.min(1, Math.max(0, avg / 128)));
+          const vol = Math.min(1, Math.max(0, avg / 128));
+          aiVolumeRef.current = vol;
+          setAiVolume(vol);
         } else {
+          aiVolumeRef.current = 0;
           setAiVolume(0);
         }
         animationFrameRef.current = requestAnimationFrame(updateVolumeLoop);
@@ -525,41 +535,31 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         }
 
         const inputData = e.inputBuffer.getChannelData(0);
-        const rms = calculateRMSVolume(inputData);
-        const zcr = calculateZCR(inputData);
-
-        // Adaptive ambient noise floor tracking (moving average on non-speech frames)
-        if (speechConsecutiveFrames === 0) {
-          runningNoiseFloor = runningNoiseFloor * 0.95 + rms * 0.05;
-        }
-        const speechThreshold = Math.max(0.038, runningNoiseFloor * 2.2 + 0.015);
-        // Raised threshold during AI speech to prevent speaker bleed/echo self-interruption
-        const bargeInThreshold = Math.max(0.085, runningNoiseFloor * 3.4 + 0.04);
-
-        // Filter out non-voice transients (clicks, keyboard keys, paper rustle, glass taps)
-        // Voiced human speech typically has zcr <= 0.30; non-voice transients have zcr > 0.32
-        const isVoiceLike = zcr < 0.32;
-        const isEnergyAboveSpeech = rms > speechThreshold && isVoiceLike;
-
-        if (isEnergyAboveSpeech) {
-          speechConsecutiveFrames++;
-        } else {
-          speechConsecutiveFrames = Math.max(0, speechConsecutiveFrames - 1);
-        }
-
-        // Sustained human voice evidence (>= 3 buffers = ~250ms sustained energy), rejecting transient claps/clicks
-        const speakingNow = speechConsecutiveFrames >= 3;
-        setIsUserSpeaking(speakingNow);
-        setUserVolume(speakingNow ? rms : Math.min(rms, 0.02));
-
         const now = Date.now();
         const pcmBuffer = downsampleAndConvertToPCM16(inputData, audioCtx.sampleRate, 16000);
 
-        // 2. Interruption & Stream Gating Logic during thinking or speaking
-        const isAssistantBusy = phaseRef.current === 'thinking' || phaseRef.current === 'assistant_speaking' || isAiSpeakingRef.current;
+        const isAssistantBusy =
+          phaseRef.current === 'thinking' ||
+          phaseRef.current === 'assistant_speaking' ||
+          isAiSpeakingRef.current;
 
+        // Run multi-feature voice analysis (RMS, pitch periodicity, ZCR, crest factor, spectral difference)
+        const analysis = analyzeAudioFrame(
+          inputData,
+          audioCtx.sampleRate,
+          runningNoiseFloor,
+          aiVolumeRef.current,
+          isAssistantBusy
+        );
+
+        // Adaptive ambient noise floor tracking (moving average on non-speech frames)
+        if (speechConsecutiveFrames === 0 && bargeInConsecutiveFrames === 0) {
+          runningNoiseFloor = runningNoiseFloor * 0.95 + analysis.rms * 0.05;
+        }
+
+        // 2. Interruption & Stream Gating Logic during thinking or speaking
         if (isAssistantBusy) {
-          // In 'protected' mode (DEFAULT):
+          // In optional 'protected' mode:
           // Microphone audio is NEVER submitted to Gemini while thinking or speaking.
           // Automatic barge-in is suppressed; interruption is ONLY via the dedicated Interrupt button.
           if (bargeInModeRef.current === 'protected') {
@@ -568,35 +568,42 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
             return;
           }
 
-          // In optional 'natural' mode:
-          // Guard against speaker echo and background noise.
-          const isIntentionalVoice = rms > bargeInThreshold && isVoiceLike;
-          if (isIntentionalVoice) {
+          // In 'natural' mode (DEFAULT):
+          // Guard against speaker echo, keyboard clicks, glass impacts, and brief background sounds
+          // using harmonic pitch periodicity, crest factor, and high-pass difference ratio.
+          if (analysis.isIntentionalBargeIn) {
             bargeInConsecutiveFrames++;
           } else {
             bargeInConsecutiveFrames = Math.max(0, bargeInConsecutiveFrames - 1);
           }
 
-          // Buffer incoming frames in circular pre-roll queue (max 5 chunks ~340ms)
+          // Buffer incoming frames in circular pre-roll queue (max 5 chunks ~350-425ms)
           preRollBufferRef.current.push(pcmBuffer);
           if (preRollBufferRef.current.length > 5) {
             preRollBufferRef.current.shift();
           }
 
-          // Confirm intentional user interruption (>= 4 consecutive frames ~340ms sustained voice)
-          if (bargeInConsecutiveFrames >= 4) {
+          // Confirm intentional user interruption (>= 3 consecutive frames ~255ms sustained harmonic voice)
+          if (bargeInConsecutiveFrames >= 3) {
+            activeGenerationIdRef.current += 1;
+            isServerTurnCompleteRef.current = true;
             stopAiPlayback();
             bargeInConsecutiveFrames = 0;
-            speechConsecutiveFrames = 4;
+            speechConsecutiveFrames = 3;
             hasSpokenInCurrentTurn = true;
-            userSpeechStartedAt = now - 340;
+            userSpeechStartedAt = now - 255;
             userSilenceStartedAt = 0;
             setPhaseSafe('user_turn');
+            setIsUserSpeaking(true);
+            setUserVolume(analysis.rms);
 
             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-              // 1. Send interruption signal
-              wsRef.current.send(JSON.stringify({ type: 'interrupt' }));
-              // 2. Flush pre-roll buffer so the beginning syllable of the interruption isn't clipped!
+              // 1. Send interruption signal with generation ID to supersede upstream generation
+              wsRef.current.send(JSON.stringify({
+                type: 'interrupt',
+                generation_id: activeGenerationIdRef.current
+              }));
+              // 2. Flush pre-roll buffer so the beginning words ("Wait, explain...") are intact!
               while (preRollBufferRef.current.length > 0) {
                 const chunk = preRollBufferRef.current.shift();
                 if (chunk) wsRef.current.send(chunk);
@@ -608,6 +615,20 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
 
         // 3. User's Turn Mode (Microphone actively participating)
         bargeInConsecutiveFrames = 0;
+
+        const speechThreshold = Math.max(0.035, runningNoiseFloor * 2.2 + 0.015);
+        const isSpeech = analysis.rms > speechThreshold && analysis.isVoiceLike;
+
+        if (isSpeech) {
+          speechConsecutiveFrames++;
+        } else {
+          speechConsecutiveFrames = Math.max(0, speechConsecutiveFrames - 1);
+        }
+
+        // Sustained human voice evidence (>= 2 buffers = ~170ms sustained voice)
+        const speakingNow = speechConsecutiveFrames >= 2;
+        setIsUserSpeaking(speakingNow);
+        setUserVolume(speakingNow ? analysis.rms : Math.min(analysis.rms, 0.02));
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           if (speakingNow) {
@@ -622,7 +643,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
 
             if (!userSpeechStartedAt) userSpeechStartedAt = now;
             userSilenceStartedAt = 0;
-            if (now - userSpeechStartedAt > 500) {
+            if (now - userSpeechStartedAt > 400) {
               hasSpokenInCurrentTurn = true;
             }
           } else {
