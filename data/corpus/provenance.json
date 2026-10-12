@@ -1,0 +1,12 @@
+{
+  "edition": "Tanzil Quran Text (Simple, Version 1.1)",
+  "license": "Creative Commons Attribution 3.0",
+  "url": "https://tanzil.net/download/",
+  "arabic_sha256": "f3268cfe7a400add8a8024fe23368d66f58cc8baa51773fe94e323625c66344b",
+  "en_translation": "Saheeh International (Tanzil edition)",
+  "en_sha256": "a1778a1a56695d9b59ae910809ec46d9f4a55f05961de51cd56e6ebcf9040883",
+  "ur_translation": "Fateh Muhammad Jalandhry (Tanzil edition)",
+  "ur_sha256": "c7e982b49b5e6f275559985caaf24f5e0136950f73f50f1a6c6f6a5281617c6a",
+  "total_surahs": 114,
+  "total_verses": 6236
+}

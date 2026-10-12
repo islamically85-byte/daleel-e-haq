@@ -1,0 +1,103 @@
+:root {
+  /* Daleel-e-Haq Premium Neutral Dark Palette */
+  --bg-base: #17191C;
+  --bg-sidebar: #111316;
+  --bg-surface: #202327;
+  --bg-elevated: #25282D;
+  --bg-composer: #2D3035;
+  --bg-card: #202327;
+  --bg-user-bubble: #2B2F36;
+  --bg-glass: rgba(23, 25, 28, 0.85);
+
+  /* Subtle, modern borders */
+  --border-subtle: #2D3138;
+  --border-medium: #353941;
+  --border-focus: #12A886;
+  --border-emerald: rgba(18, 168, 134, 0.3);
+  --border-gold: rgba(229, 168, 59, 0.3);
+
+  /* Daleel-e-Haq Brand Emerald Accent */
+  --emerald-primary: #12A886;
+  --emerald-hover: #0F8F72;
+  --emerald-dark: #0B6350;
+  --emerald-glow: rgba(18, 168, 134, 0.18);
+  --emerald-badge-bg: rgba(18, 168, 134, 0.12);
+  --emerald-badge-text: #2DD4BF;
+
+  /* Subtle Warm Gold Secondary Highlights */
+  --gold-accent: #E5A83B;
+  --gold-hover: #D4962A;
+  --gold-dark: #78350F;
+  --gold-glow: rgba(229, 168, 59, 0.15);
+  --gold-badge-bg: rgba(229, 168, 59, 0.12);
+  --gold-badge-text: #FBBF24;
+
+  /* Danger / Warning Palette */
+  --danger-primary: #EF4444;
+  --danger-glow: rgba(239, 68, 68, 0.15);
+  --danger-badge-bg: rgba(239, 68, 68, 0.12);
+  --danger-badge-text: #F87171;
+
+  /* Readable Refined Typography */
+  --text-primary: #F5F5F3;
+  --text-secondary: #A6A8AD;
+  --text-muted: #70747C;
+  --text-arabic: #FFFFFF;
+
+  /* Scripture & Global Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-arabic: "Amiri", "Traditional Arabic", "Scheherazade New", "Noto Naskh Arabic", serif;
+  --font-urdu: "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", "Urdu Typesetting", serif;
+
+  /* Sizing & Radius */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-subtle: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-emerald: 0 4px 16px rgba(18, 168, 134, 0.2);
+
+  /* Layout dimensions */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 64px;
+  --header-height: 54px;
+  --content-max-width: 820px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 240ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="light"] {
+  --bg-base: #FFFFFF;
+  --bg-sidebar: #F6F6F4;
+  --bg-surface: #F8F9FA;
+  --bg-elevated: #F2F3F3;
+  --bg-composer: #FFFFFF;
+  --bg-card: #FFFFFF;
+  --bg-user-bubble: #F0F2F5;
+  --bg-glass: rgba(255, 255, 255, 0.9);
+
+  --border-subtle: #E4E6E7;
+  --border-medium: #D1D5DB;
+  --border-focus: #12A886;
+  --border-emerald: rgba(18, 168, 134, 0.25);
+
+  --emerald-primary: #12A886;
+  --emerald-hover: #0F8F72;
+  --emerald-badge-bg: rgba(18, 168, 134, 0.1);
+  --emerald-badge-text: #0D7A61;
+
+  --text-primary: #202124;
+  --text-secondary: #666A70;
+  --text-muted: #8E9299;
+  --text-arabic: #111827;
+
+  --shadow-subtle: 0 1px 4px rgba(0, 0, 0, 0.08);
+  --shadow-elevated: 0 6px 20px rgba(0, 0, 0, 0.08);
+  --shadow-emerald: 0 4px 12px rgba(18, 168, 134, 0.15);
+}
