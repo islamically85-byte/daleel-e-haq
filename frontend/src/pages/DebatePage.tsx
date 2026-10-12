@@ -149,8 +149,10 @@ Speaker 2: "However, the Quran states 'Qul Huwa Allahu Ahad'—Ahad signifies ab
           height: '100%',
           width: '100%',
           overflow: 'hidden',
-          padding: '0.75rem 1rem',
-          minHeight: 0
+          padding: '0.5rem 0.75rem',
+          minHeight: 0,
+          minWidth: 0,
+          boxSizing: 'border-box'
         }}
       >
         {/* Debate Mode Switcher Tabs */}
@@ -194,7 +196,7 @@ Speaker 2: "However, the Quran states 'Qul Huwa Allahu Ahad'—Ahad signifies ab
           </button>
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <DebateLiveVoiceView
             language={language}
             onDebateSaved={(id) => {

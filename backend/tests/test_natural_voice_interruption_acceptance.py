@@ -119,7 +119,7 @@ def test_natural_barge_in_acceptance_flow():
         gen1_captions = []
         gen1_id = 1
 
-        while not gen1_audio_received:
+        for _ in range(60):
             msg = ws.receive_json()
             msg_type = msg.get("type")
             print(f"[ACCEPTANCE] Gen 1 event: {msg_type}")
@@ -134,6 +134,7 @@ def test_natural_barge_in_acceptance_flow():
                 print(f"[ACCEPTANCE] Evidence card received during Gen 1: {msg.get('evidence', {}).get('citation')}")
             elif msg_type == "state_change":
                 print(f"[ACCEPTANCE] Server state change: {msg.get('state')}")
+        assert gen1_audio_received, "Timed out waiting for Gen 1 audio from Gemini Live"
 
         # 5. NATURAL BARGE-IN: User interrupts mid-response!
         print("[ACCEPTANCE] Triggering natural barge-in interruption...")
@@ -149,18 +150,21 @@ def test_natural_barge_in_acceptance_flow():
 
         # Drain until interrupted message is confirmed
         interrupted_confirmed = False
-        while not interrupted_confirmed:
+        for _ in range(30):
             msg = ws.receive_json()
             msg_type = msg.get("type")
             if msg_type == "interrupted":
                 interrupted_confirmed = True
                 print(f"[ACCEPTANCE] Interruption confirmed by server: gen={msg.get('generation_id')}")
+                break
             elif msg_type == "state_change" and msg.get("state") == "user_turn":
                 interrupted_confirmed = True
                 print(f"[ACCEPTANCE] Server transitioned to user_turn for gen={msg.get('generation_id')}")
+                break
             elif msg_type == "audio":
                 # Stale audio chunk received right before interrupt processed on wire - discarded
                 print(f"[ACCEPTANCE] Dropped in-flight pre-interrupt audio chunk (gen={msg.get('generation_id')})")
+        assert interrupted_confirmed, "Interruption confirmation timed out"
 
         # Finish objection turn
         ws.send_json({"type": "turn_complete"})
@@ -317,7 +321,7 @@ def test_urdu_natural_barge_in_acceptance_flow():
 
         # Wait for Gen 1 audio
         gen1_id = 1
-        while True:
+        for _ in range(60):
             msg = ws.receive_json()
             if msg.get("type") == "audio":
                 gen1_id = msg.get("generation_id", 1)
@@ -330,7 +334,7 @@ def test_urdu_natural_barge_in_acceptance_flow():
             ws.send_bytes(objection_pcm[i:i + chunk_size])
 
         # Drain until interrupt acknowledged
-        while True:
+        for _ in range(30):
             msg = ws.receive_json()
             if msg.get("type") in ("interrupted", "state_change") and msg.get("generation_id") == next_gen_id:
                 break

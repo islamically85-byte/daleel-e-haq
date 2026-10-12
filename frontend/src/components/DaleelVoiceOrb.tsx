@@ -10,10 +10,8 @@ export interface DaleelVoiceOrbProps {
   isConnecting?: boolean;
   aiVolume?: number; // 0..1
   userVolume?: number; // 0..1
-  bargeInMode?: 'natural' | 'protected';
   size?: number;
   onOrbClick?: () => void;
-  onToggleMute?: () => void;
 }
 
 interface Particle {
@@ -41,10 +39,8 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
   isConnecting: propIsConnecting = false,
   aiVolume = 0,
   userVolume = 0,
-  bargeInMode = 'natural',
   size = 200,
-  onOrbClick,
-  onToggleMute
+  onOrbClick
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -503,8 +499,6 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
   const handleOrbClick = () => {
     if (onOrbClick) {
       onOrbClick();
-    } else if (onToggleMute) {
-      onToggleMute();
     }
   };
 
@@ -518,7 +512,7 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
     return 'Daleel-e-Haq voice orb ready';
   };
 
-  const isInteractive = Boolean(onOrbClick || onToggleMute);
+  const isInteractive = Boolean(onOrbClick);
 
   return (
     <div
@@ -545,9 +539,7 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
       }}
       role={isInteractive ? 'button' : 'img'}
       tabIndex={isInteractive ? 0 : undefined}
-      aria-pressed={onToggleMute ? isMuted : undefined}
       aria-label={getAriaLabel()}
-      title={onToggleMute ? (isMuted ? 'Click to unmute' : 'Click to mute') : undefined}
     >
       {/* HTML5 Canvas Surface */}
       <canvas
@@ -572,41 +564,6 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
           transition: 'filter 200ms ease'
         }}
       />
-
-      {/* Subtle Bottom Mode Badge (Non-intrusive) */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '4px',
-          zIndex: 3,
-          fontSize: '0.65rem',
-          fontWeight: 600,
-          padding: '2px 8px',
-          borderRadius: '10px',
-          backgroundColor:
-            isMuted
-              ? 'rgba(239, 68, 68, 0.2)'
-              : bargeInMode === 'protected'
-                ? 'rgba(59, 130, 246, 0.2)'
-                : 'rgba(18, 168, 134, 0.2)',
-          color:
-            isMuted
-              ? '#F87171'
-              : bargeInMode === 'protected'
-                ? '#93C5FD'
-                : '#6EE7B7',
-          border:
-            isMuted
-              ? '1px solid rgba(239, 68, 68, 0.35)'
-              : bargeInMode === 'protected'
-                ? '1px solid rgba(59, 130, 246, 0.35)'
-                : '1px solid rgba(18, 168, 134, 0.35)',
-          letterSpacing: '0.02em',
-          pointerEvents: 'none'
-        }}
-      >
-        {isMuted ? '🔇 Muted' : bargeInMode === 'protected' ? '🛡️ Protected' : '🌿 Natural'}
-      </div>
     </div>
   );
 };

@@ -67,6 +67,18 @@ export function App() {
     document.documentElement.setAttribute('lang', language);
   }, [language]);
 
+  // Auto-collapse sidebar on narrow screens (< 800px)
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 800) {
+        setIsSidebarCollapsed(true);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Load initial health and conversation history
   useEffect(() => {
     api.getHealth()
@@ -165,6 +177,7 @@ export function App() {
         <main
           style={{
             flex: 1,
+            minWidth: 0,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',

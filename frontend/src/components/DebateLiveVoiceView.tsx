@@ -47,8 +47,6 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
     toggleMute,
     interrupt,
     finishTurnManual,
-    bargeInMode,
-    setBargeInMode,
     clearError
   } = useLiveDebate({
     onSessionSaved: onDebateSaved
@@ -96,26 +94,26 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
   const getPhaseDisplay = () => {
     if (isMuted) {
       return {
-        badge: isUrdu ? 'مائیکروفون بند ہے' : 'Microphone Muted',
+        badge: isUrdu ? 'مائیکروفون بند ہے (Muted)' : 'Microphone Muted',
         badgeColor: '#EF4444',
         instruction: isUrdu
-          ? 'بولنے کے لیے نیچے مائیک آن کریں۔ مائیک بند ہونے پر کوئی آواز نہیں جائے گی۔'
-          : 'Microphone is gated. Click unmute below when you wish to speak.'
+          ? 'بولنے کے لیے نیچے مائیکروفون بٹن پر کلک کریں۔'
+          : 'Microphone is muted. Click the mic button below to speak.'
       };
     }
 
     switch (phase) {
       case 'connecting':
         return {
-          badge: isUrdu ? 'رابطہ قائم ہو رہا ہے...' : 'Connecting to gemini-3.8-live...',
+          badge: isUrdu ? 'رابطہ قائم ہو رہا ہے...' : 'Connecting...',
           badgeColor: '#F59E0B',
           instruction: isUrdu
             ? 'سرور سے براہ راست صوتی رابطہ قائم ہو رہا ہے...'
-            : 'Establishing secure bidirectional audio streaming...'
+            : 'Connecting to gemini-3.8-live session...'
         };
       case 'thinking':
         return {
-          badge: isUrdu ? 'شواہد کی جانچ جاری ہے...' : 'Checking scripture & evidence...',
+          badge: isUrdu ? 'شواہد کی جانچ جاری ہے...' : 'Thinking...',
           badgeColor: '#F59E0B',
           instruction: isUrdu
             ? 'دلیلِ حق مقامی قرآنی ڈیٹابیس سے مستند حوالہ تلاش کر رہا ہے...'
@@ -123,40 +121,35 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
         };
       case 'assistant_speaking':
         return {
-          badge: isUrdu ? 'دلیلِ حق گفتگو کر رہا ہے' : 'Daleel-e-Haq is responding',
+          badge: isUrdu ? 'دلیلِ حق بول رہا ہے (Speaking)' : 'Speaking',
           badgeColor: 'var(--emerald-primary)',
-          instruction:
-            bargeInMode === 'natural'
-              ? isUrdu
-                ? 'قدرتی موڈ (طے شدہ): آپ بول کر بھی گفتگو کو نیا رخ دے سکتے ہیں'
-                : 'Natural Mode (Default): Speak clearly anytime to take the floor'
-              : isUrdu
-                ? 'محفوظ موڈ (اختیاری): اپنی باری لینے کے لیے "بات روکیں" دبائیں'
-                : 'Protected Mode (Optional): Tap Interrupt anytime to take the floor'
+          instruction: isUrdu
+            ? 'بول کر بھی بات کو نیا رخ دے سکتے ہیں، یا نیچے "بات روکیں" دبائیں'
+            : 'Speak naturally anytime to interrupt, or tap Stop AI'
         };
       case 'user_turn':
         if (isUserSpeaking) {
           return {
-            badge: isUrdu ? 'آپ کا استدلال سنا جا رہا ہے...' : 'Listening to your argument...',
+            badge: isUrdu ? 'آپ کی بات سنی جا رہی ہے...' : 'Listening...',
             badgeColor: '#3B82F6',
             instruction: isUrdu
-              ? 'اطمینان سے اپنا نکتہ مکمل کریں، یا "جواب طلب کریں" دبائیں'
-              : 'Speak your point naturally, or tap Respond Now when done'
+              ? 'اطمینان سے گفتگو فرمائیں؛ دلیلِ حق سن رہا ہے'
+              : 'Speaking detected. Speak freely; Gemini responds naturally.'
           };
         }
         return {
-          badge: isUrdu ? 'آپ کی باری ہے' : 'Your turn to speak',
+          badge: isUrdu ? 'سن رہا ہے (Listening)' : 'Listening',
           badgeColor: '#3B82F6',
           instruction: isUrdu
-            ? 'مائیکروفون تیار ہے۔ اپنا علمی دعویٰ یا سوال بولیں۔'
-            : 'Floor is yours. State your theological claim or objection.'
+            ? 'مائیکروفون آن ہے۔ اپنا علمی دعویٰ، سوال یا اعتراض بولیں۔'
+            : 'Microphone active. Speak your theological claim or objection.'
         };
       default:
         return {
-          badge: isUrdu ? 'صوتی مناظرہ تیار ہے' : 'Live Voice Debate Ready',
+          badge: isUrdu ? 'غیر متصل (Disconnected)' : 'Disconnected',
           badgeColor: 'var(--text-secondary)',
           instruction: isUrdu
-            ? 'انگریزی، اردو، ہندی اور پنجابی میں قدرتی علمی گفتگو'
+            ? 'انگریزی، اردو، ہندی اور پنجابی میں قدرتی صوتی مکالمہ'
             : 'Spoken dialogue with local Tanzil Quran verification'
         };
     }
@@ -174,10 +167,12 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
         width: '100%',
         maxWidth: '920px',
         margin: '0 auto',
-        padding: '0.75rem 1rem',
+        padding: '0.5rem 0.75rem',
         gap: '0.75rem',
         overflowY: 'auto',
-        minHeight: 0
+        minHeight: 0,
+        minWidth: 0,
+        boxSizing: 'border-box'
       }}
     >
       {/* 1. Top Control Bar: Voice Selector & Barge-In Mode */}
@@ -237,78 +232,32 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
           </div>
         </div>
 
-        {/* Mode & Voice Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {/* Barge-in Mode Toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', marginRight: '0.2rem' }}>
-              {isUrdu ? 'طریقۂ کلام:' : 'Mode:'}
-            </span>
+        {/* Voice Selection Pills */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', marginRight: '0.15rem' }}>
+            {isUrdu ? 'لہجہ:' : 'Voice:'}
+          </span>
+          {(['Kore', 'Puck', 'Aoede', 'Charon'] as const).map((v) => (
             <button
+              key={v}
               type="button"
-              onClick={() => setBargeInMode('natural')}
+              disabled={isConnected}
+              onClick={() => handleVoiceChange(v)}
               className="btn btn-ghost"
               style={{
                 padding: '0.2rem 0.55rem',
                 minHeight: '26px',
                 fontSize: '0.72rem',
                 borderRadius: '10px',
-                backgroundColor: bargeInMode === 'natural' ? 'rgba(18, 168, 134, 0.15)' : 'transparent',
-                color: bargeInMode === 'natural' ? 'var(--emerald-primary)' : 'var(--text-secondary)',
-                border: bargeInMode === 'natural' ? '1px solid rgba(18, 168, 134, 0.35)' : '1px solid transparent',
-                fontWeight: bargeInMode === 'natural' ? 600 : 400
+                backgroundColor: selectedVoice === v ? 'rgba(18, 168, 134, 0.15)' : 'transparent',
+                color: selectedVoice === v ? 'var(--emerald-primary)' : 'var(--text-secondary)',
+                border: selectedVoice === v ? '1px solid rgba(18, 168, 134, 0.35)' : '1px solid transparent',
+                fontWeight: selectedVoice === v ? 600 : 400
               }}
-              title={isUrdu ? 'قدرتی موڈ (طے شدہ): بول کر بھی روکا جا سکتا ہے' : 'Natural Mode (Default): Hands-free conversational barge-in; deliberate speech interrupts AI'}
             >
-              <span>{isUrdu ? '🌿 قدرتی (طے شدہ)' : '🌿 Natural (Default)'}</span>
+              {v}
             </button>
-            <button
-              type="button"
-              onClick={() => setBargeInMode('protected')}
-              className="btn btn-ghost"
-              style={{
-                padding: '0.2rem 0.55rem',
-                minHeight: '26px',
-                fontSize: '0.72rem',
-                borderRadius: '10px',
-                backgroundColor: bargeInMode === 'protected' ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
-                color: bargeInMode === 'protected' ? '#3B82F6' : 'var(--text-secondary)',
-                border: bargeInMode === 'protected' ? '1px solid rgba(59, 130, 246, 0.35)' : '1px solid transparent',
-                fontWeight: bargeInMode === 'protected' ? 600 : 400
-              }}
-              title={isUrdu ? 'محفوظ موڈ (اختیاری): بات روکنے کے لیے صرف بٹن دبائیں' : 'Protected Mode (Optional): Uninterrupted turns, use Interrupt button'}
-            >
-              <span>{isUrdu ? '🛡️ محفوظ' : '🛡️ Protected'}</span>
-            </button>
-          </div>
-
-          {/* Voice Selection Pills */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', marginRight: '0.15rem' }}>
-              {isUrdu ? 'لہجہ:' : 'Voice:'}
-            </span>
-            {(['Kore', 'Puck', 'Aoede', 'Charon'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                disabled={isConnected}
-                onClick={() => handleVoiceChange(v)}
-                className="btn btn-ghost"
-                style={{
-                  padding: '0.2rem 0.55rem',
-                  minHeight: '26px',
-                  fontSize: '0.72rem',
-                  borderRadius: '10px',
-                  backgroundColor: selectedVoice === v ? 'rgba(18, 168, 134, 0.15)' : 'transparent',
-                  color: selectedVoice === v ? 'var(--emerald-primary)' : 'var(--text-secondary)',
-                  border: selectedVoice === v ? '1px solid rgba(18, 168, 134, 0.35)' : '1px solid transparent',
-                  fontWeight: selectedVoice === v ? 600 : 400
-                }}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
+          ))}
         </div>
       </div>
 
@@ -369,7 +318,6 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               isConnecting={false}
               aiVolume={0}
               userVolume={0}
-              bargeInMode={bargeInMode}
               size={120}
               onOrbClick={handleStart}
             />
@@ -418,7 +366,6 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               isConnecting={true}
               aiVolume={0}
               userVolume={0}
-              bargeInMode={bargeInMode}
               size={120}
             />
             <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
@@ -437,9 +384,8 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               isConnecting={isConnecting}
               aiVolume={aiVolume}
               userVolume={userVolume}
-              bargeInMode={bargeInMode}
               size={135}
-              onToggleMute={toggleMute}
+              onOrbClick={isAISpeaking ? interrupt : undefined}
             />
 
             {/* Speaking Status Caption with distinct state descriptions */}
@@ -481,45 +427,50 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                 {isMuted ? <MicOff size={17} /> : <Mic size={17} />}
               </button>
 
-              {/* Respond Now / Turn Complete Button */}
-              <button
-                type="button"
-                disabled={isAISpeaking || phase === 'thinking'}
-                onClick={finishTurnManual}
-                className="btn btn-primary"
-                style={{
-                  minHeight: '38px',
-                  padding: '0 1.05rem',
-                  borderRadius: '20px',
-                  fontSize: '0.8rem',
-                  gap: '0.45rem',
-                  opacity: isAISpeaking || phase === 'thinking' ? 0.45 : 1
-                }}
-                title={isUrdu ? 'دلیل مکمل کر کے جواب طلب کریں' : 'Signal end of argument and request AI response'}
-              >
-                <Sparkles size={15} />
-                <span>{isUrdu ? 'جواب طلب کریں' : 'Respond Now'}</span>
-              </button>
+              {/* Stop AI / Interrupt Button (Prominently visible when AI is speaking) */}
+              {isAISpeaking && (
+                <button
+                  type="button"
+                  onClick={interrupt}
+                  className="btn btn-secondary animate-pulse"
+                  style={{
+                    minHeight: '38px',
+                    padding: '0 0.95rem',
+                    borderRadius: '20px',
+                    fontSize: '0.8rem',
+                    gap: '0.4rem',
+                    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                    color: '#EF4444',
+                    border: '1px solid rgba(239, 68, 68, 0.35)'
+                  }}
+                  title={isUrdu ? 'دلیلِ حق کی بات روک کر اپنی بات کہیں' : 'Stop AI speech and take the floor'}
+                >
+                  <Hand size={15} />
+                  <span>{isUrdu ? 'بات روکیں' : 'Stop AI'}</span>
+                </button>
+              )}
 
-              {/* Interrupt AI Button */}
-              <button
-                type="button"
-                disabled={!isAISpeaking}
-                onClick={interrupt}
-                className="btn btn-secondary"
-                style={{
-                  minHeight: '38px',
-                  padding: '0 0.95rem',
-                  borderRadius: '20px',
-                  fontSize: '0.8rem',
-                  gap: '0.4rem',
-                  opacity: isAISpeaking ? 1 : 0.5
-                }}
-                title="Interrupt AI and take floor"
-              >
-                <Hand size={15} />
-                <span>{isUrdu ? 'بات روکیں' : 'Interrupt'}</span>
-              </button>
+              {/* Respond Now / Turn Complete Button (Only when user turn and not AI speaking) */}
+              {!isAISpeaking && (
+                <button
+                  type="button"
+                  disabled={phase === 'thinking'}
+                  onClick={finishTurnManual}
+                  className="btn btn-primary"
+                  style={{
+                    minHeight: '38px',
+                    padding: '0 1.05rem',
+                    borderRadius: '20px',
+                    fontSize: '0.8rem',
+                    gap: '0.45rem',
+                    opacity: phase === 'thinking' ? 0.45 : 1
+                  }}
+                  title={isUrdu ? 'دلیل مکمل کر کے جواب طلب کریں' : 'Signal end of argument and request AI response'}
+                >
+                  <Sparkles size={15} />
+                  <span>{isUrdu ? 'جواب طلب کریں' : 'Respond Now'}</span>
+                </button>
+              )}
 
               {/* End Call / Finish Debate */}
               <button
@@ -765,7 +716,9 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                     border: t.role === 'user' ? '1px solid var(--border-medium)' : '1px solid rgba(18, 168, 134, 0.25)',
                     color: 'var(--text-primary)',
                     direction: /[\u0600-\u06FF]/.test(t.text) ? 'rtl' : 'ltr',
-                    textAlign: /[\u0600-\u06FF]/.test(t.text) ? 'right' : 'left'
+                    textAlign: /[\u0600-\u06FF]/.test(t.text) ? 'right' : 'left',
+                    wordBreak: 'break-word',
+                    overflowWrap: 'anywhere'
                   }}
                 >
                   {t.text}

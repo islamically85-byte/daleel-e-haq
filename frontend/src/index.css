@@ -321,9 +321,23 @@ html, body {
   }
 }
 
+@media (max-width: 640px) {
+  .debate-voice-header {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+    padding: 0.5rem 0.65rem !important;
+  }
+  .debate-voice-header > div {
+    justify-content: space-between !important;
+    width: 100% !important;
+  }
+}
+
 @media (max-width: 480px) {
   .debate-voice-controls {
     flex-wrap: wrap !important;
+    justify-content: center !important;
     gap: 0.45rem !important;
   }
 }

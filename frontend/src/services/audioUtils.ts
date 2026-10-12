@@ -192,34 +192,35 @@ export function analyzeAudioFrame(
   const periodicity = calculateNormalizedAutocorrelation(buffer, sampleRate);
 
   // Human voice envelope:
-  // 1. ZCR in speech range (0.02 to 0.30)
-  // 2. Harmonic pitch periodicity >= 0.26
-  // 3. Low high-pass difference ratio (not a metallic click or glass clink)
-  // 4. Crest factor bounded (not an isolated impulse spike)
+  // 1. ZCR in natural speech range covering deep male vowels up to sibilants (0.002 to 0.48 at 48kHz)
+  // 2. High-pass difference ratio bounded (< 0.78) to reject sharp glass/cutlery impacts
+  // 3. Crest factor bounded (< 4.8) to reject isolated impulse clicks
   const isSpeechEnvelope =
-    zcr >= 0.02 &&
-    zcr <= 0.30 &&
-    diffRatio < 0.62 &&
-    crestFactor < 4.6;
+    zcr >= 0.002 &&
+    zcr <= 0.48 &&
+    diffRatio < 0.78 &&
+    crestFactor < 4.8;
 
-  const isVoiceLike = isSpeechEnvelope && periodicity >= 0.26;
+  const isVoiced = periodicity >= 0.20;
+  const isVoiceLike = isSpeechEnvelope && (isVoiced || (rms > noiseFloor * 2.0 && zcr <= 0.38));
 
   // Speaker echo coupling compensation during AI speech:
-  // When AI speaks through speakers, microphone picks up bleed roughly proportional to aiPlaybackVolume.
-  const expectedSpeakerBleed = isAssistantSpeaking ? aiPlaybackVolume * 0.22 : 0;
+  // Modern browsers utilize hardware/OS echo cancellation. We add a modest chassis bleed offset
+  // without artificially raising the threshold beyond human speech range.
+  const expectedSpeakerBleed = isAssistantSpeaking ? Math.min(0.02, aiPlaybackVolume * 0.035) : 0;
   const bargeInThreshold = Math.max(
-    0.075,
-    noiseFloor * 2.8 + expectedSpeakerBleed + 0.035
+    0.028,
+    Math.min(0.065, noiseFloor * 1.8 + expectedSpeakerBleed + 0.010)
   );
 
-  // Intentional barge-in requires:
-  // - Acoustic energy exceeding the dynamic noise + speaker bleed threshold
-  // - High confidence voice harmonic periodicity (periodicity >= 0.30)
-  // - Rejection of clicks, glass impacts, and transient spikes
+  // Intentional barge-in:
+  // - Acoustic RMS energy exceeding the dynamic noise floor
+  // - Conforms to human speech acoustic envelope (not a transient click or glass impact)
+  // - Either periodic vocal-fold harmonic vibration (vowels) OR clear speech energy (plosives/stops)
   const isIntentionalBargeIn =
     rms > bargeInThreshold &&
     isSpeechEnvelope &&
-    periodicity >= 0.30;
+    (periodicity >= 0.22 || (rms > bargeInThreshold * 1.25 && zcr <= 0.38));
 
   return {
     rms,

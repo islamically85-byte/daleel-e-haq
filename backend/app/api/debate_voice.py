@@ -233,6 +233,17 @@ async def debate_live_websocket(
     if voice_name not in ["Kore", "Puck", "Aoede", "Charon"]:
         voice_name = "Puck"
 
+    urdu_directive = (
+        "\n\nSTRICT URDU LANGUAGE REQUIREMENT:\n"
+        "The user has selected Urdu. You MUST converse and respond EXCLUSIVELY in articulate, authentic Urdu (اردو زبان) in Urdu script. "
+        "DO NOT respond in English unless the user explicitly switches to English."
+        if language == "ur" else
+        "\n\nMULTILINGUAL CODE-SWITCHING DIRECTIVE:\n"
+        "Automatically match the user's spoken language. If the user speaks in Urdu, Roman Urdu, Hindi, or Punjabi, "
+        "or commands you to speak Urdu (e.g., 'اردو میں بات کرو' or 'urdu m bat kro'), you MUST immediately converse in fluent, articulate Urdu (اردو زبان) in Urdu script. "
+        "NEVER reply in English to Urdu speech. Never repeat canned English boilerplate."
+    )
+
     system_instruction = (
         "You are Daleel-e-Haq (دلیلِ حق — Evidence of Truth), a disciplined, evidence-based Islamic theological and debate partner. "
         "Engage in respectful, scholarly, evidence-grounded theological and philosophical dialogue. "
@@ -253,6 +264,7 @@ async def debate_live_websocket(
         "For example, if the user interrupts: 'Wait, explain the first verse instead' or 'ٹھہریں، پہلے پہلی آیت کی وضاحت کریں', "
         "immediately focus on verse 1 of the Surah being discussed (e.g. Surah 112:1 - 'Say: He is Allah, the One' / قُلْ هُوَ اللَّهُ أَحَدٌ), "
         "call 'get_quran_evidence' to verify, and explain its theological meaning directly and concisely."
+        + urdu_directive
     )
 
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -264,7 +276,7 @@ async def debate_live_websocket(
             )
         ),
         input_audio_transcription=types.AudioTranscriptionConfig(
-            language_codes=[]
+            language_codes=["ur-PK", "ur", "en-US"] if language == "ur" else ["ur-PK", "ur", "en-US", "hi-IN", "pa-PK"]
         ),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         system_instruction=types.Content(
@@ -285,11 +297,38 @@ async def debate_live_websocket(
             active_generation_id = 1
             client_is_muted = False
             session_ended = asyncio.Event()
-            accumulated_turn_bytes = 0
+            current_turn_audio = bytearray()
+            last_audio_time = asyncio.get_event_loop().time()
+            turn_lock = asyncio.Lock()
 
-            # Task 1: Forward client audio chunks and control signals to Gemini (Exactly-Once Streaming)
+            async def commit_user_audio_turn():
+                nonlocal last_audio_time
+                if client_is_muted:
+                    current_turn_audio.clear()
+                    return
+                async with turn_lock:
+                    if len(current_turn_audio) < 3200:
+                        current_turn_audio.clear()
+                        return
+                    audio_bytes = bytes(current_turn_audio)
+                    current_turn_audio.clear()
+                    try:
+                        await websocket.send_json({
+                            "type": "state_change",
+                            "state": "thinking",
+                            "generation_id": active_generation_id
+                        })
+                        part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/pcm;rate=16000")
+                        await gemini_session.send_client_content(
+                            turns=[types.Content(role="user", parts=[part])],
+                            turn_complete=True
+                        )
+                    except Exception as ex:
+                        logger.warning(f"Error committing user audio turn: {ex}")
+
+            # Task 1: Forward client audio chunks and control signals to Gemini (Native Streaming)
             async def forward_client_audio():
-                nonlocal client_is_muted, active_generation_id, accumulated_turn_bytes
+                nonlocal client_is_muted, active_generation_id, last_audio_time
                 try:
                     while True:
                         msg = await websocket.receive()
@@ -301,15 +340,13 @@ async def debate_live_websocket(
                             # Cap per-frame payload size (QA-24)
                             if len(audio_bytes) > MAX_AUDIO_FRAME_BYTES:
                                 continue
-                            accumulated_turn_bytes += len(audio_bytes)
-                            # Enforce maximum turn bytes cap (~120s of 16kHz PCM = 3.84MB)
-                            if accumulated_turn_bytes > MAX_AUDIO_BYTES_PER_TURN:
-                                try:
-                                    await gemini_session.send_realtime_input(audio_stream_end=True)
-                                except Exception:
-                                    pass
-                                accumulated_turn_bytes = 0
-                                continue
+                            async with turn_lock:
+                                current_turn_audio.extend(audio_bytes)
+                                last_audio_time = asyncio.get_event_loop().time()
+                                # Enforce maximum turn bytes cap (~120s of 16kHz PCM = 3.84MB)
+                                if len(current_turn_audio) > MAX_AUDIO_BYTES_PER_TURN:
+                                    asyncio.create_task(commit_user_audio_turn())
+                                    continue
 
                             try:
                                 await gemini_session.send_realtime_input(
@@ -322,21 +359,15 @@ async def debate_live_websocket(
                             msg_type = data.get("type")
                             if msg_type == "mute_state":
                                 client_is_muted = bool(data.get("is_muted", False))
+                                if client_is_muted:
+                                    async with turn_lock:
+                                        current_turn_audio.clear()
                             elif msg_type in ("turn_complete", "speech_end"):
-                                accumulated_turn_bytes = 0
                                 if not client_is_muted:
-                                    try:
-                                        await websocket.send_json({
-                                            "type": "state_change",
-                                            "state": "thinking",
-                                            "generation_id": active_generation_id
-                                        })
-                                        await gemini_session.send_realtime_input(audio_stream_end=True)
-                                        await gemini_session.send_client_content(turns=[], turn_complete=True)
-                                    except Exception as ex:
-                                        logger.warning(f"Error signaling audio stream end: {ex}")
+                                    await commit_user_audio_turn()
                             elif msg_type == "text_turn" and data.get("text"):
-                                accumulated_turn_bytes = 0
+                                async with turn_lock:
+                                    current_turn_audio.clear()
                                 try:
                                     await websocket.send_json({
                                         "type": "state_change",
@@ -356,7 +387,12 @@ async def debate_live_websocket(
                                 else:
                                     active_generation_id += 1
                                 logger.info(f"User interrupted live speech. Active generation: {active_generation_id}")
-                                accumulated_turn_bytes = 0
+                                async with turn_lock:
+                                    current_turn_audio.clear()
+                                try:
+                                    await gemini_session.send_realtime_input(audio_stream_end=True)
+                                except Exception as ex:
+                                    logger.debug(f"Error signalling audio_stream_end on interrupt: {ex}")
                                 await websocket.send_json({
                                     "type": "interrupted",
                                     "generation_id": active_generation_id
@@ -378,7 +414,20 @@ async def debate_live_websocket(
                 except Exception as e:
                     logger.warning(f"Error forwarding client audio: {e}")
 
-            # Task 2: Receive Gemini audio parts, tool calls, captions, and turn events continuously
+            # Task 2: Auto-commit turn if user finishes speaking and goes silent for 1.6s
+            async def auto_commit_silence_watcher():
+                try:
+                    while not session_ended.is_set():
+                        await asyncio.sleep(0.2)
+                        if client_is_muted:
+                            continue
+                        now = asyncio.get_event_loop().time()
+                        if len(current_turn_audio) >= 8000 and (now - last_audio_time) >= 1.6:
+                            await commit_user_audio_turn()
+                except asyncio.CancelledError:
+                    pass
+
+            # Task 3: Receive Gemini audio parts, tool calls, captions, and turn events continuously
             async def forward_gemini_responses():
                 nonlocal active_generation_id
                 try:
@@ -515,17 +564,19 @@ async def debate_live_websocket(
                     logger.warning(f"Error receiving Gemini live responses: {e}")
 
             client_task = asyncio.create_task(forward_client_audio())
+            silence_task = asyncio.create_task(auto_commit_silence_watcher())
             gemini_task = asyncio.create_task(forward_gemini_responses())
 
             # Wait until client finishes or disconnects
             await client_task
             session_ended.set()
 
-            gemini_task.cancel()
-            try:
-                await gemini_task
-            except (asyncio.CancelledError, Exception):
-                pass
+            for t in [silence_task, gemini_task]:
+                t.cancel()
+                try:
+                    await t
+                except (asyncio.CancelledError, Exception):
+                    pass
 
     except WebSocketDisconnect:
         logger.debug("Debate live WebSocket disconnected cleanly.")
