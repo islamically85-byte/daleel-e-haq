@@ -7,6 +7,7 @@ interface HeaderProps {
   onLanguageChange: (lang: 'en' | 'ur') => void;
   activeModel: string;
   isOnlineMode: boolean;
+  providerConfigured?: boolean;
   onToggleSidebar?: () => void;
   onNavigateSettings?: (tab: NavTab) => void;
   quranCount?: number;
@@ -17,6 +18,7 @@ export const Header: React.FC<HeaderProps> = ({
   onLanguageChange,
   activeModel,
   isOnlineMode,
+  providerConfigured = false,
   onToggleSidebar,
   onNavigateSettings,
   quranCount = 6236
@@ -96,25 +98,60 @@ export const Header: React.FC<HeaderProps> = ({
             alignItems: 'center',
             gap: '0.45rem',
             padding: '0.3rem 0.75rem',
-            backgroundColor: isOnlineMode ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255, 255, 255, 0.04)',
+            backgroundColor: !isOnlineMode
+              ? 'rgba(255, 255, 255, 0.04)'
+              : providerConfigured
+                ? 'rgba(16, 185, 129, 0.1)'
+                : 'rgba(245, 158, 11, 0.12)',
             borderRadius: '9999px',
-            border: isOnlineMode ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--border-subtle)',
+            border: !isOnlineMode
+              ? '1px solid var(--border-subtle)'
+              : providerConfigured
+                ? '1px solid rgba(16, 185, 129, 0.3)'
+                : '1px solid rgba(245, 158, 11, 0.35)',
             fontSize: '0.75rem'
           }}
-          title={isOnlineMode ? 'Google Gemini API is active for online reasoning' : 'Offline local mode'}
+          title={
+            !isOnlineMode
+              ? 'Offline local mode'
+              : providerConfigured
+                ? 'Google Gemini API is active for online reasoning'
+                : 'Gemini API key is unconfigured in backend environment'
+          }
         >
           <span
             style={{
               width: '7px',
               height: '7px',
               borderRadius: '50%',
-              backgroundColor: isOnlineMode ? 'var(--emerald-primary)' : 'var(--text-muted)',
-              boxShadow: isOnlineMode ? '0 0 8px var(--emerald-primary)' : 'none',
+              backgroundColor: !isOnlineMode
+                ? 'var(--text-muted)'
+                : providerConfigured
+                  ? 'var(--emerald-primary)'
+                  : '#F59E0B',
+              boxShadow: !isOnlineMode
+                ? 'none'
+                : providerConfigured
+                  ? '0 0 8px var(--emerald-primary)'
+                  : '0 0 8px rgba(245, 158, 11, 0.5)',
               display: 'inline-block'
             }}
           />
-          <span style={{ fontWeight: 600, color: isOnlineMode ? 'var(--emerald-badge-text)' : 'var(--text-secondary)' }}>
-            {isOnlineMode ? (isUrdu ? 'آن لائن ماڈل فعال' : 'Online AI Active') : (isUrdu ? 'آف لائن' : 'Offline')}
+          <span
+            style={{
+              fontWeight: 600,
+              color: !isOnlineMode
+                ? 'var(--text-secondary)'
+                : providerConfigured
+                  ? 'var(--emerald-badge-text)'
+                  : '#F59E0B'
+            }}
+          >
+            {!isOnlineMode
+              ? (isUrdu ? 'آف لائن' : 'Offline')
+              : providerConfigured
+                ? (isUrdu ? 'آن لائن ماڈل فعال' : 'Online AI Active')
+                : (isUrdu ? 'اے پی آئی غیر مرتب' : 'API Key Unconfigured')}
           </span>
           <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
             ({activeModel.replace('gemini-', '')})

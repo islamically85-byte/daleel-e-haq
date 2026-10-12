@@ -176,12 +176,13 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
         margin: '0 auto',
         padding: '0.75rem 1rem',
         gap: '0.75rem',
-        overflow: 'hidden',
+        overflowY: 'auto',
         minHeight: 0
       }}
     >
       {/* 1. Top Control Bar: Voice Selector & Barge-In Mode */}
       <div
+        className="debate-voice-header"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -342,22 +343,23 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
 
       {/* 2. Visualizer Stage: Daleel Celestial Orb & Real-Time Phase Display */}
       <div
+        className="debate-voice-stage"
         style={{
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '1.25rem 1rem',
+          padding: '1rem 0.9rem',
           backgroundColor: 'var(--bg-surface)',
           borderRadius: '18px',
           border: '1px solid var(--border-subtle)',
           position: 'relative',
-          minHeight: '190px',
+          minHeight: '130px',
           flexShrink: 0
         }}
       >
         {!isConnected && !isConnecting ? (
-          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.65rem' }}>
             <DaleelVoiceOrb
               phase="idle"
               isAISpeaking={false}
@@ -368,20 +370,20 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               aiVolume={0}
               userVolume={0}
               bargeInMode={bargeInMode}
-              size={150}
+              size={120}
               onOrbClick={handleStart}
             />
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
                 {isUrdu ? 'دلیلِ حق سے براہِ راست مناظرہ' : 'Start Live Voice Debate'}
               </h3>
-              <p style={{ margin: '0.3rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
                 {isUrdu
                   ? 'اپنا علمی یا قرآنی استدلال بولیں؛ دلیلِ حق فورا سن کر مدلل جواب دے گا'
                   : 'Speak your theological argument; Daleel-e-Haq verifies scripture and responds'}
               </p>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
               <button
                 type="button"
                 onClick={handleStart}
@@ -406,7 +408,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
             </div>
           </div>
         ) : isConnecting ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.65rem' }}>
             <DaleelVoiceOrb
               phase="connecting"
               isAISpeaking={false}
@@ -417,14 +419,14 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               aiVolume={0}
               userVolume={0}
               bargeInMode={bargeInMode}
-              size={150}
+              size={120}
             />
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
               {isUrdu ? 'gemini-3.8-live سرور سے رابطہ قائم ہو رہا ہے...' : 'Connecting to gemini-3.8-live session...'}
             </span>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.85rem', width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.65rem', width: '100%' }}>
             {/* Audio Reactive Celestial Orb */}
             <DaleelVoiceOrb
               phase={phase}
@@ -436,7 +438,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               aiVolume={aiVolume}
               userVolume={userVolume}
               bargeInMode={bargeInMode}
-              size={165}
+              size={135}
               onToggleMute={toggleMute}
             />
 
@@ -444,20 +446,23 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
             <div style={{ textAlign: 'center' }}>
               <div
                 style={{
-                  fontSize: '0.9rem',
+                  fontSize: '0.875rem',
                   fontWeight: 600,
                   color: phaseInfo.badgeColor
                 }}
               >
                 {phaseInfo.badge}
               </div>
-              <div style={{ fontSize: '0.735rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+              <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
                 {phaseInfo.instruction}
               </div>
             </div>
 
             {/* Live Session Controls Bar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <div
+              className="debate-voice-controls"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.65rem', flexWrap: 'wrap' }}
+            >
               {/* Mute Button */}
               <button
                 type="button"
@@ -712,6 +717,9 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
         <div
           ref={captionsContainerRef}
           onScroll={handleCaptionsScroll}
+          role="log"
+          aria-live="polite"
+          aria-label={isUrdu ? 'براہِ راست مکالماتی متن' : 'Live Dialogue Captions'}
           style={{
             flex: 1,
             overflowY: 'auto',

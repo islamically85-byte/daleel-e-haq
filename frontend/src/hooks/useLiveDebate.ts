@@ -73,6 +73,11 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   const bargeInModeRef = useRef<'natural' | 'protected'>('protected');
   const phaseRef = useRef<DebatePhase>('idle');
   const preRollBufferRef = useRef<ArrayBuffer[]>([]);
+  const activeGenerationIdRef = useRef<number>(1);
+  const isServerTurnCompleteRef = useRef<boolean>(true);
+  const sessionIdRef = useRef<string>(
+    typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `sess_${Date.now()}`
+  );
 
   const setPhaseSafe = useCallback((p: DebatePhase) => {
     phaseRef.current = p;
@@ -174,9 +179,11 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         }
         // When the final queued audio chunk finishes playing on the speakers:
         if (activeSourcesRef.current.length === 0) {
-          setAiSpeakingState(false);
-          // Turn smoothly and automatically returns to the user!
-          setPhaseSafe('user_turn');
+          // Only return to user_turn if provider response has completed AND local audio queue has drained (P1 blocker 5)
+          if (isServerTurnCompleteRef.current) {
+            setAiSpeakingState(false);
+            setPhaseSafe('user_turn');
+          }
         }
       };
     } catch (e) {
@@ -257,6 +264,8 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   }, []);
 
   const interrupt = useCallback(() => {
+    activeGenerationIdRef.current += 1;
+    isServerTurnCompleteRef.current = true;
     stopAiPlayback();
     preRollBufferRef.current = [];
     setPhaseSafe('user_turn');
@@ -271,6 +280,13 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     setError(null);
     setIsConnecting(true);
     setPhaseSafe('connecting');
+
+    // Isolate sessions: clear prior session turns and evidence (P1 blocker 7)
+    setTurns([]);
+    setLiveEvidence([]);
+    sessionStorage.removeItem(STORAGE_TURNS_KEY);
+    activeGenerationIdRef.current = 1;
+    isServerTurnCompleteRef.current = true;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError('Microphone capture is not supported in this browser.');
@@ -328,7 +344,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       const selectedVoice = customVoice || voicePreferences.getSelectedVoice() || 'Kore';
       const selectedLang = customLanguage || 'auto';
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/ws/debate-live?voice=${encodeURIComponent(selectedVoice)}&language=${encodeURIComponent(selectedLang)}`;
+      const wsUrl = `${protocol}//${window.location.host}/api/ws/debate-live?voice=${encodeURIComponent(selectedVoice)}&language=${encodeURIComponent(selectedLang)}&session_id=${encodeURIComponent(sessionIdRef.current)}`;
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -344,32 +360,61 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
           const data = JSON.parse(event.data);
 
           if (data.type === 'ready') {
+            isServerTurnCompleteRef.current = true;
             setPhaseSafe('user_turn');
           } else if (data.type === 'state_change') {
+            if (data.generation_id && data.generation_id < activeGenerationIdRef.current) {
+              return;
+            }
             if (data.state === 'thinking' || data.state === 'checking_evidence') {
+              isServerTurnCompleteRef.current = false;
               setPhaseSafe('thinking');
             } else if (data.state === 'assistant_speaking') {
+              isServerTurnCompleteRef.current = false;
               setPhaseSafe('assistant_speaking');
             } else if (data.state === 'user_turn') {
-              setPhaseSafe('user_turn');
+              isServerTurnCompleteRef.current = true;
+              if (activeSourcesRef.current.length === 0) {
+                setPhaseSafe('user_turn');
+              }
             }
           } else if (data.type === 'evidence_retrieved') {
             if (data.evidence) {
+              const ev = data.evidence;
+              // Handle topic-search results that contain nested verses (P1 blocker 3)
+              const itemsToAdd: LiveEvidenceItem[] = ev.verses && Array.isArray(ev.verses)
+                ? ev.verses.map((v: any) => ({ ...v, source_type: 'quran', is_verified: true }))
+                : [ev];
+
               setLiveEvidence((prev) => {
-                const ev = data.evidence;
-                const id = ev.source_id || `${ev.surah_number}:${ev.ayah_number}` || String(Date.now());
-                if (prev.some((e) => (e.source_id || `${e.surah_number}:${e.ayah_number}`) === id)) {
-                  return prev;
-                }
-                return [...prev, ev];
+                const existingKeys = new Set(
+                  prev.map((e) => e.source_id || (e.surah_number && e.ayah_number ? `${e.surah_number}:${e.ayah_number}` : e.citation || JSON.stringify(e)))
+                );
+                const newItems = itemsToAdd.filter((item) => {
+                  const key = item.source_id || (item.surah_number && item.ayah_number ? `${item.surah_number}:${item.ayah_number}` : item.citation || JSON.stringify(item));
+                  return !existingKeys.has(key);
+                });
+                return [...prev, ...newItems];
               });
             }
           } else if (data.type === 'audio') {
+            // Discard stale audio chunks from an interrupted generation (P1 blocker 2)
+            if (data.generation_id && data.generation_id < activeGenerationIdRef.current) {
+              return;
+            }
+            isServerTurnCompleteRef.current = false;
             playPcmChunk(data.data, data.sample_rate || 24000);
           } else if (data.type === 'interrupted') {
+            if (data.generation_id && data.generation_id > activeGenerationIdRef.current) {
+              activeGenerationIdRef.current = data.generation_id;
+            }
+            isServerTurnCompleteRef.current = true;
             stopAiPlayback();
             setPhaseSafe('user_turn');
           } else if (data.type === 'output_caption') {
+            if (data.generation_id && data.generation_id < activeGenerationIdRef.current) {
+              return;
+            }
             const textChunk = data.text || '';
             if (textChunk) {
               setTurns((prev) => {
@@ -429,7 +474,15 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
               });
             }
           } else if (data.type === 'turn_complete') {
-            // Handled when local audio finishes playing
+            if (data.generation_id && data.generation_id < activeGenerationIdRef.current) {
+              return;
+            }
+            isServerTurnCompleteRef.current = true;
+            // Only transition back to user_turn if local playback queue is completely drained (P1 blocker 5)
+            if (activeSourcesRef.current.length === 0) {
+              setAiSpeakingState(false);
+              setPhaseSafe('user_turn');
+            }
           } else if (data.type === 'error') {
             setError(data.message || 'Live debate server error occurred.');
             cleanupAudio();
@@ -662,8 +715,11 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
           summary: `Recorded ${recordedTurns.length} spoken dialogue turns via gemini-3.8-live.`
         });
 
-        if (saveRes.debate_id && options?.onSessionSaved) {
-          options.onSessionSaved(saveRes.debate_id);
+        if (saveRes.debate_id) {
+          sessionStorage.removeItem(STORAGE_TURNS_KEY);
+          if (options?.onSessionSaved) {
+            options.onSessionSaved(saveRes.debate_id);
+          }
         }
       } catch (e) {
         console.warn('Failed to auto-save debate session:', e);

@@ -12,6 +12,8 @@ class HealthResponse(BaseModel):
     hadith_configured: bool
     active_provider: str
     active_model: str
+    provider_configured: bool = False
+    provider_status: str = "unconfigured"
 
 
 class ProviderMetadata(BaseModel):

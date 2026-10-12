@@ -128,6 +128,8 @@ class GeminiProvider(AIProvider):
     ) -> Dict[str, Any]:
         if not self.api_key:
             return {
+                "status": "error",
+                "error_message": "Gemini API key is not configured. Please add GEMINI_API_KEY to your .env file to enable Online AI reasoning.",
                 "direct_answer": "Gemini API key is not configured. Please add GEMINI_API_KEY to your .env file to enable Online AI reasoning.",
                 "language": language,
                 "cited_source_ids": [],
@@ -203,10 +205,20 @@ class GeminiProvider(AIProvider):
             )
 
 
+            history_context = ""
+            if conversation_history:
+                formatted_turns = []
+                for h in conversation_history[-6:]:
+                    role_label = "User" if h.get("role") == "user" else "Assistant"
+                    formatted_turns.append(f"{role_label}: {h.get('content', '')[:300]}")
+                if formatted_turns:
+                    history_context = "\n\nPrior Conversation History:\n" + "\n".join(formatted_turns)
+
             user_prompt = (
                 f"User Question: {question}\n\n"
                 f"Preferred Language: {language}\n\n"
-                f"Approved Local Evidence Records:\n{evidence_block}\n\n"
+                f"Approved Local Evidence Records:\n{evidence_block}"
+                f"{history_context}\n\n"
                 f"Provide your structured analysis in valid JSON according to the instructions."
             )
 
@@ -231,6 +243,8 @@ class GeminiProvider(AIProvider):
         except Exception as e:
             logger.error(f"Error generating grounded response: {e}")
             return {
+                "status": "error",
+                "error_message": f"Error communicating with AI engine: {str(e)}",
                 "direct_answer": f"Error communicating with AI engine: {str(e)}",
                 "language": language,
                 "cited_source_ids": [],

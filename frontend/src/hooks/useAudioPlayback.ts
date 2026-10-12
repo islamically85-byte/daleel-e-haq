@@ -18,6 +18,19 @@ export function useAudioPlayback() {
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const audioUrlCacheRef = useRef<Map<string, string>>(new Map());
+  const requestIdRef = useRef<number>(0);
+
+  // Clean up cached blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      audioUrlCacheRef.current.forEach((url) => {
+        if (url && url.startsWith('blob:')) {
+          try { URL.revokeObjectURL(url); } catch {}
+        }
+      });
+      audioUrlCacheRef.current.clear();
+    };
+  }, []);
 
   // Setup Web Audio Analyser for actual real audio intensity analysis
   const setupAudioAnalyser = useCallback((audioEl: HTMLAudioElement) => {
@@ -139,6 +152,7 @@ export function useAudioPlayback() {
       // Stop previous playback
       stop();
 
+      const currentReqId = ++requestIdRef.current;
       setActiveMessageId(messageId);
       setIsLoading(true);
 
@@ -156,8 +170,30 @@ export function useAudioPlayback() {
             voice: selectedVoice,
             language: selectedLang
           });
+
+          // Check if request was superseded while waiting for speech generation
+          if (currentReqId !== requestIdRef.current) {
+            if (audioUrl && audioUrl.startsWith('blob:')) {
+              try { URL.revokeObjectURL(audioUrl); } catch {}
+            }
+            return;
+          }
+
+          // Bound cache to 20 items (QA-19)
+          if (audioUrlCacheRef.current.size >= 20) {
+            const firstKey = audioUrlCacheRef.current.keys().next().value;
+            if (firstKey) {
+              const oldUrl = audioUrlCacheRef.current.get(firstKey);
+              if (oldUrl && oldUrl.startsWith('blob:')) {
+                try { URL.revokeObjectURL(oldUrl); } catch {}
+              }
+              audioUrlCacheRef.current.delete(firstKey);
+            }
+          }
           audioUrlCacheRef.current.set(cacheKey, audioUrl);
         }
+
+        if (currentReqId !== requestIdRef.current) return;
 
         if (!audioRef.current) {
           audioRef.current = new Audio();

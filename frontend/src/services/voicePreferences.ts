@@ -12,15 +12,22 @@ const DEFAULT_PREFERENCES: VoicePreferences = {
   onboardingCompleted: false
 };
 
+const VALID_VOICES = ['Kore', 'Puck', 'Aoede', 'Charon'] as const;
+const VALID_LANGUAGES = ['en', 'ur'] as const;
+
 export const voicePreferences = {
   get(): VoicePreferences {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
+        const validVoice = VALID_VOICES.includes(parsed.voice) ? parsed.voice : DEFAULT_PREFERENCES.voice;
+        const validLang = VALID_LANGUAGES.includes(parsed.language) ? parsed.language : DEFAULT_PREFERENCES.language;
         return {
           ...DEFAULT_PREFERENCES,
-          ...parsed
+          ...parsed,
+          voice: validVoice,
+          language: validLang
         };
       }
     } catch (e) {

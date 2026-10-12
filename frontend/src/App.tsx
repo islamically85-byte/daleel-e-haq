@@ -32,12 +32,14 @@ export function App() {
   const [activeTab, setActiveTabState] = useState<NavTab>(getInitialTab);
   const [activeModel, setActiveModel] = useState<string>('gemini-3.8-flash');
   const [isOnlineMode, setIsOnlineMode] = useState<boolean>(true);
+  const [isProviderConfigured, setIsProviderConfigured] = useState<boolean>(false);
   const [quranCount, setQuranCount] = useState<number>(6236);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Conversation history state managed at root
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [selectedDebateId, setSelectedDebateId] = useState<string | null>(null);
 
   const setActiveTab = useCallback((tab: NavTab) => {
     setActiveTabState(tab);
@@ -71,6 +73,7 @@ export function App() {
       .then((h) => {
         if (h.active_model) setActiveModel(h.active_model);
         setIsOnlineMode(h.active_provider === 'gemini');
+        if (h.provider_configured !== undefined) setIsProviderConfigured(h.provider_configured);
         if (h.quran_records_loaded) setQuranCount(h.quran_records_loaded);
       })
       .catch((err) => {
@@ -116,7 +119,8 @@ export function App() {
     setActiveTab('ask');
   };
 
-  const handleOpenDebate = (_debateId: string) => {
+  const handleOpenDebate = (debateId: string) => {
+    setSelectedDebateId(debateId);
     setActiveTab('debate');
   };
 
@@ -137,6 +141,7 @@ export function App() {
         onLanguageChange={setLanguage}
         activeModel={activeModel}
         isOnlineMode={isOnlineMode}
+        providerConfigured={isProviderConfigured}
         quranCount={quranCount}
         onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         onNavigateSettings={(tab) => setActiveTab(tab)}
@@ -177,7 +182,13 @@ export function App() {
             />
           )}
 
-          {activeTab === 'debate' && <DebatePage language={language} />}
+          {activeTab === 'debate' && (
+            <DebatePage
+              language={language}
+              selectedDebateId={selectedDebateId}
+              onClearSelectedDebateId={() => setSelectedDebateId(null)}
+            />
+          )}
 
           {activeTab === 'library' && <LibraryPage language={language} />}
 

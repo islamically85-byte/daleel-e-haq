@@ -83,6 +83,19 @@ class MemoryRepository:
             return conv
 
     @classmethod
+    def get_conversation_messages(cls, conv_id: str, limit: int = 6) -> List[Dict[str, Any]]:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM messages
+                WHERE conversation_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?;
+            """, (conv_id, limit))
+            rows = cursor.fetchall()
+            return [dict(r) for r in reversed(rows)]
+
+    @classmethod
     def rename_conversation(cls, conv_id: str, new_title: str) -> bool:
         with get_connection() as conn:
             cursor = conn.cursor()

@@ -13,9 +13,15 @@ import { DebateLiveVoiceView } from '../components/DebateLiveVoiceView';
 
 interface Props {
   language: 'en' | 'ur';
+  selectedDebateId?: string | null;
+  onClearSelectedDebateId?: () => void;
 }
 
-export const DebatePage: React.FC<Props> = ({ language }) => {
+export const DebatePage: React.FC<Props> = ({
+  language,
+  selectedDebateId,
+  onClearSelectedDebateId
+}) => {
   const isUrdu = language === 'ur';
   const [activeMode, setActiveModeState] = useState<'voice' | 'written'>(() => {
     try {
@@ -42,6 +48,16 @@ export const DebatePage: React.FC<Props> = ({ language }) => {
   useEffect(() => {
     loadPastDebates();
   }, []);
+
+  useEffect(() => {
+    if (selectedDebateId) {
+      setActiveMode('written');
+      handleSelectPastDebate(selectedDebateId);
+      if (onClearSelectedDebateId) {
+        onClearSelectedDebateId();
+      }
+    }
+  }, [selectedDebateId]);
 
   const loadPastDebates = async () => {
     try {

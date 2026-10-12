@@ -320,3 +320,20 @@ html, body {
     --content-max-width: 100%;
   }
 }
+
+@media (max-width: 480px) {
+  .debate-voice-controls {
+    flex-wrap: wrap !important;
+    gap: 0.45rem !important;
+  }
+}
+
+@media (max-height: 520px) {
+  .debate-voice-stage {
+    min-height: 110px !important;
+    padding: 0.4rem 0.6rem !important;
+  }
+  .debate-voice-header {
+    padding: 0.35rem 0.6rem !important;
+  }
+}

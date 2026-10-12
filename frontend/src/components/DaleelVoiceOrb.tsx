@@ -65,6 +65,16 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
   const particlesRef = useRef<Particle[]>([]);
   const lastShockwaveSpawnRef = useRef(0);
 
+  // Volume refs to avoid tearing down RAF loop on volume change (QA-20)
+  const aiVolRef = useRef(aiVolume);
+  const userVolRef = useRef(userVolume);
+  useEffect(() => {
+    aiVolRef.current = aiVolume;
+  }, [aiVolume]);
+  useEffect(() => {
+    userVolRef.current = userVolume;
+  }, [userVolume]);
+
   // ResizeObserver for container-relative responsive sizing
   useEffect(() => {
     const el = containerRef.current;
@@ -74,9 +84,9 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         const available = Math.min(width || size, height || size);
-        if (available > 60) {
-          // Clamp between 150px and 240px
-          const clamped = Math.max(150, Math.min(240, Math.round(available)));
+        if (available > 40) {
+          // Clamp between 80px and 240px for mobile landscape reachability
+          const clamped = Math.max(80, Math.min(240, Math.round(available)));
           setOrbDimension(clamped);
         }
       }
@@ -114,9 +124,9 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const render = () => {
-      // 1. Attack / Decay Smoothing
-      const targetAi = isAISpeaking ? aiVolume : 0;
-      const targetUser = !isMuted && isUserSpeaking ? userVolume : 0;
+      // 1. Attack / Decay Smoothing using volume refs
+      const targetAi = isAISpeaking ? aiVolRef.current : 0;
+      const targetUser = !isMuted && isUserSpeaking ? userVolRef.current : 0;
 
       const aiAttack = 0.35;
       const aiDecay = 0.12;
@@ -148,6 +158,8 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
         canvas.width = Math.round(width * dpr);
         canvas.height = Math.round(height * dpr);
       }
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
@@ -465,13 +477,17 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
       ctx.fill();
       ctx.restore();
 
-      animationFrameId = requestAnimationFrame(render);
+      if (!prefersReducedMotion) {
+        animationFrameId = requestAnimationFrame(render);
+      }
     };
 
     render();
 
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
     };
   }, [
     isThinking,
@@ -481,8 +497,6 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
     isMuted,
     isConnected,
     isConnecting,
-    aiVolume,
-    userVolume,
     orbDimension
   ]);
 
@@ -504,22 +518,34 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
     return 'Daleel-e-Haq voice orb ready';
   };
 
+  const isInteractive = Boolean(onOrbClick || onToggleMute);
+
   return (
     <div
       ref={containerRef}
       onClick={handleOrbClick}
+      onKeyDown={(e) => {
+        if (isInteractive && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          handleOrbClick();
+        }
+      }}
       style={{
         position: 'relative',
         width: `${orbDimension}px`,
         height: `${orbDimension}px`,
+        maxWidth: `${orbDimension}px`,
+        maxHeight: `${orbDimension}px`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         userSelect: 'none',
-        cursor: onOrbClick || onToggleMute ? 'pointer' : 'default',
+        cursor: isInteractive ? 'pointer' : 'default',
         transition: 'transform 180ms ease'
       }}
-      role="img"
+      role={isInteractive ? 'button' : 'img'}
+      tabIndex={isInteractive ? 0 : undefined}
+      aria-pressed={onToggleMute ? isMuted : undefined}
       aria-label={getAriaLabel()}
       title={onToggleMute ? (isMuted ? 'Click to unmute' : 'Click to mute') : undefined}
     >
@@ -529,6 +555,10 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
         style={{
           position: 'absolute',
           inset: 0,
+          width: `${orbDimension}px`,
+          height: `${orbDimension}px`,
+          maxWidth: `${orbDimension}px`,
+          maxHeight: `${orbDimension}px`,
           pointerEvents: 'none',
           filter: isThinking
             ? 'drop-shadow(0 0 20px rgba(245, 158, 11, 0.4))'

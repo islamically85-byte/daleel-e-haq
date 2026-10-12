@@ -17,6 +17,8 @@ logger = logging.getLogger("daleel.debate_voice")
 debate_voice_router = APIRouter()
 
 DEBATE_LIVE_MODEL = "gemini-3.8-live"
+MAX_AUDIO_FRAME_BYTES = 65536  # 64 KB per frame
+MAX_AUDIO_BYTES_PER_TURN = 3840000  # 3.84 MB (~120s of 16kHz PCM16)
 
 
 class SaveDebateSessionRequest(BaseModel):
@@ -58,12 +60,36 @@ def save_debate_session(payload: SaveDebateSessionRequest):
     if not transcript:
         return {"status": "skipped", "message": "Empty transcript"}
 
-    analysis_data = payload.analysis_data or {
+    # Bound transcript size to avoid unbounded storage (max 500,000 characters)
+    if len(transcript) > 500000:
+        transcript = transcript[:500000]
+
+    # Do not trust arbitrary client verification claims (QA-11)
+    raw_analysis = payload.analysis_data or {}
+    raw_claims = raw_analysis.get("claims", [])
+    sanitized_claims = []
+    if raw_claims:
+        conn = MemoryRepository.get_connection() if hasattr(MemoryRepository, "get_connection") else None
+        for c in raw_claims:
+            if isinstance(c, dict):
+                c_copy = dict(c)
+                cited_ids = c_copy.get("cited_ids", [])
+                valid_ids = []
+                for cid in cited_ids:
+                    if validate_source_id(cid, conn=conn):
+                        valid_ids.append(cid)
+                c_copy["cited_ids"] = valid_ids
+                # Only mark verified if source is actually authenticated in the local database
+                if not valid_ids:
+                    c_copy["verification_status"] = "unverified"
+                sanitized_claims.append(c_copy)
+
+    analysis_data = {
         "topic": payload.topic or "Live Spoken Debate",
         "summary": payload.summary or f"Spoken voice debate ({len(transcript.split())} words transcribed)",
-        "unresolved_issues": [],
-        "synthesis": "Spoken dialogue recorded via Daleel-e-Haq Live Voice Mode.",
-        "claims": []
+        "unresolved_issues": raw_analysis.get("unresolved_issues", []),
+        "synthesis": raw_analysis.get("synthesis", "Spoken dialogue recorded via Daleel-e-Haq Live Voice Mode."),
+        "claims": sanitized_claims
     }
 
     saved = MemoryRepository.save_debate(
@@ -249,37 +275,14 @@ async def debate_live_websocket(
                 "language": language
             })
 
-            current_turn_audio = bytearray()
-            last_audio_time = asyncio.get_event_loop().time()
-            turn_lock = asyncio.Lock()
+            active_generation_id = 1
             client_is_muted = False
             session_ended = asyncio.Event()
+            accumulated_turn_bytes = 0
 
-            async def commit_user_audio_turn():
-                nonlocal last_audio_time
-                if client_is_muted:
-                    current_turn_audio.clear()
-                    return
-                async with turn_lock:
-                    if len(current_turn_audio) < 3200:
-                        current_turn_audio.clear()
-                        return
-                    audio_bytes = bytes(current_turn_audio)
-                    current_turn_audio.clear()
-                    try:
-                        # Signal client that thinking / evidence checking has begun
-                        await websocket.send_json({"type": "state_change", "state": "thinking"})
-                        part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/pcm;rate=16000")
-                        await gemini_session.send_client_content(
-                            turns=[types.Content(role="user", parts=[part])],
-                            turn_complete=True
-                        )
-                    except Exception as ex:
-                        logger.warning(f"Error committing user audio turn: {ex}")
-
-            # Task 1: Forward client audio chunks and control signals to Gemini
+            # Task 1: Forward client audio chunks and control signals to Gemini (Exactly-Once Streaming)
             async def forward_client_audio():
-                nonlocal last_audio_time, client_is_muted
+                nonlocal client_is_muted, active_generation_id, accumulated_turn_bytes
                 try:
                     while True:
                         msg = await websocket.receive()
@@ -288,8 +291,19 @@ async def debate_live_websocket(
                             if client_is_muted:
                                 continue
                             audio_bytes = msg["bytes"]
-                            current_turn_audio.extend(audio_bytes)
-                            last_audio_time = asyncio.get_event_loop().time()
+                            # Cap per-frame payload size (QA-24)
+                            if len(audio_bytes) > MAX_AUDIO_FRAME_BYTES:
+                                continue
+                            accumulated_turn_bytes += len(audio_bytes)
+                            # Enforce maximum turn bytes cap (~120s of 16kHz PCM = 3.84MB)
+                            if accumulated_turn_bytes > MAX_AUDIO_BYTES_PER_TURN:
+                                try:
+                                    await gemini_session.send_realtime_input(audio_stream_end=True)
+                                except Exception:
+                                    pass
+                                accumulated_turn_bytes = 0
+                                continue
+
                             try:
                                 await gemini_session.send_realtime_input(
                                     media={"data": audio_bytes, "mime_type": "audio/pcm;rate=16000"}
@@ -301,29 +315,45 @@ async def debate_live_websocket(
                             msg_type = data.get("type")
                             if msg_type == "mute_state":
                                 client_is_muted = bool(data.get("is_muted", False))
-                                if client_is_muted:
-                                    async with turn_lock:
-                                        current_turn_audio.clear()
                             elif msg_type in ("turn_complete", "speech_end"):
+                                accumulated_turn_bytes = 0
                                 if not client_is_muted:
-                                    await commit_user_audio_turn()
-                            elif msg_type == "text_turn" and data.get("text"):
-                                async with turn_lock:
-                                    current_turn_audio.clear()
                                     try:
-                                        await websocket.send_json({"type": "state_change", "state": "thinking"})
-                                        await gemini_session.send_client_content(
-                                            turns=[types.Content(role="user", parts=[types.Part.from_text(text=data["text"])])],
-                                            turn_complete=True
-                                        )
+                                        await websocket.send_json({
+                                            "type": "state_change",
+                                            "state": "thinking",
+                                            "generation_id": active_generation_id
+                                        })
+                                        await gemini_session.send_realtime_input(audio_stream_end=True)
                                     except Exception as ex:
-                                        logger.warning(f"Error sending text turn: {ex}")
+                                        logger.warning(f"Error signaling audio stream end: {ex}")
+                            elif msg_type == "text_turn" and data.get("text"):
+                                accumulated_turn_bytes = 0
+                                try:
+                                    await websocket.send_json({
+                                        "type": "state_change",
+                                        "state": "thinking",
+                                        "generation_id": active_generation_id
+                                    })
+                                    await gemini_session.send_client_content(
+                                        turns=[types.Content(role="user", parts=[types.Part.from_text(text=data["text"])])],
+                                        turn_complete=True
+                                    )
+                                except Exception as ex:
+                                    logger.warning(f"Error sending text turn: {ex}")
                             elif msg_type == "interrupt":
                                 logger.info("User interrupted live speech.")
-                                async with turn_lock:
-                                    current_turn_audio.clear()
-                                await websocket.send_json({"type": "interrupted"})
-                                await websocket.send_json({"type": "state_change", "state": "user_turn"})
+                                active_generation_id += 1
+                                accumulated_turn_bytes = 0
+                                await websocket.send_json({
+                                    "type": "interrupted",
+                                    "generation_id": active_generation_id
+                                })
+                                await websocket.send_json({
+                                    "type": "state_change",
+                                    "state": "user_turn",
+                                    "generation_id": active_generation_id
+                                })
                             elif msg_type == "end":
                                 logger.info("Client ended live debate session.")
                                 break
@@ -336,45 +366,53 @@ async def debate_live_websocket(
                 except Exception as e:
                     logger.warning(f"Error forwarding client audio: {e}")
 
-            # Task 2: Auto-commit turn if user finishes speaking and goes silent for 2.0s
-            async def auto_commit_silence_watcher():
-                try:
-                    while not session_ended.is_set():
-                        await asyncio.sleep(0.2)
-                        if client_is_muted:
-                            continue
-                        now = asyncio.get_event_loop().time()
-                        if len(current_turn_audio) >= 8000 and (now - last_audio_time) >= 2.0:
-                            await commit_user_audio_turn()
-                except asyncio.CancelledError:
-                    pass
-
-            # Task 3: Receive Gemini audio parts, tool calls, captions, and turn events continuously
+            # Task 2: Receive Gemini audio parts, tool calls, captions, and turn events continuously
             async def forward_gemini_responses():
+                nonlocal active_generation_id
                 try:
                     while not session_ended.is_set():
                         async for response in gemini_session.receive():
                             # 1. Server-side Function / Tool Calls
                             if response.tool_call:
-                                await websocket.send_json({"type": "state_change", "state": "checking_evidence"})
+                                await websocket.send_json({
+                                    "type": "state_change",
+                                    "state": "checking_evidence",
+                                    "generation_id": active_generation_id
+                                })
                                 fn_responses = []
                                 for fc in response.tool_call.function_calls:
                                     logger.info(f"Gemini Live requested tool call: {fc.name} args={fc.args}")
                                     if fc.name == "get_quran_evidence":
                                         result = handle_quran_lookup(fc.args or {})
-                                        # Emit evidence event to frontend for live evidence drawer
-                                        await websocket.send_json({
-                                            "type": "evidence_retrieved",
-                                            "source_type": "quran",
-                                            "evidence": result,
-                                            "is_verified": result.get("is_verified", False)
-                                        })
+                                        # Normalize tool records: emit individual card per verse (P1 blocker 3)
+                                        if result.get("verses"):
+                                            for v in result["verses"]:
+                                                await websocket.send_json({
+                                                    "type": "evidence_retrieved",
+                                                    "source_type": "quran",
+                                                    "evidence": v,
+                                                    "is_verified": True
+                                                })
+                                        else:
+                                            await websocket.send_json({
+                                                "type": "evidence_retrieved",
+                                                "source_type": "quran",
+                                                "evidence": result,
+                                                "is_verified": result.get("is_verified", False)
+                                            })
                                     elif fc.name == "check_hadith_evidence":
                                         result = handle_hadith_lookup(fc.args or {})
+                                        # Explicitly disclose Hadith unavailability
                                         await websocket.send_json({
                                             "type": "evidence_retrieved",
-                                            "source_type": "hadith",
-                                            "evidence": result,
+                                            "source_type": "hadith_limitation",
+                                            "evidence": {
+                                                "source_type": "hadith_limitation",
+                                                "status": "unavailable",
+                                                "is_verified": False,
+                                                "title": "Offline Hadith Corpus Unavailable",
+                                                "limitation_disclosure": result.get("limitation_disclosure")
+                                            },
                                             "is_verified": False
                                         })
                                     else:
@@ -393,10 +431,18 @@ async def debate_live_websocket(
                             if not sc:
                                 continue
 
-                            # 2. Interruption detection
+                            # 2. Interruption detection from provider
                             if sc.interrupted:
-                                await websocket.send_json({"type": "interrupted"})
-                                await websocket.send_json({"type": "state_change", "state": "user_turn"})
+                                active_generation_id += 1
+                                await websocket.send_json({
+                                    "type": "interrupted",
+                                    "generation_id": active_generation_id
+                                })
+                                await websocket.send_json({
+                                    "type": "state_change",
+                                    "state": "user_turn",
+                                    "generation_id": active_generation_id
+                                })
 
                             # 3. Live input speech captions (user's speech)
                             if sc.interim_input_transcription and sc.interim_input_transcription.text:
@@ -416,26 +462,38 @@ async def debate_live_websocket(
                             if sc.output_transcription and sc.output_transcription.text:
                                 await websocket.send_json({
                                     "type": "output_caption",
-                                    "text": sc.output_transcription.text
+                                    "text": sc.output_transcription.text,
+                                    "generation_id": active_generation_id
                                 })
 
-                            # 5. Spoken Audio Chunks (24kHz PCM)
+                            # 5. Spoken Audio Chunks (24kHz PCM) with generation ID gating
                             if sc.model_turn and sc.model_turn.parts:
-                                # Signal that AI is speaking
-                                await websocket.send_json({"type": "state_change", "state": "assistant_speaking"})
+                                current_gen = active_generation_id
                                 for part in sc.model_turn.parts:
                                     if part.inline_data and part.inline_data.data:
+                                        # Drop chunks for an interrupted generation
+                                        if active_generation_id != current_gen:
+                                            logger.info("Discarded stale audio chunk from interrupted generation.")
+                                            break
+                                        await websocket.send_json({
+                                            "type": "state_change",
+                                            "state": "assistant_speaking",
+                                            "generation_id": current_gen
+                                        })
                                         b64_audio = base64.b64encode(part.inline_data.data).decode("ascii")
                                         await websocket.send_json({
                                             "type": "audio",
                                             "data": b64_audio,
-                                            "sample_rate": 24000
+                                            "sample_rate": 24000,
+                                            "generation_id": current_gen
                                         })
 
                             # 6. Turn completion
                             if sc.turn_complete:
-                                await websocket.send_json({"type": "turn_complete"})
-                                break
+                                await websocket.send_json({
+                                    "type": "turn_complete",
+                                    "generation_id": active_generation_id
+                                })
 
                 except WebSocketDisconnect:
                     pass
@@ -445,19 +503,17 @@ async def debate_live_websocket(
                     logger.warning(f"Error receiving Gemini live responses: {e}")
 
             client_task = asyncio.create_task(forward_client_audio())
-            silence_task = asyncio.create_task(auto_commit_silence_watcher())
             gemini_task = asyncio.create_task(forward_gemini_responses())
 
             # Wait until client finishes or disconnects
             await client_task
             session_ended.set()
 
-            for t in [silence_task, gemini_task]:
-                t.cancel()
-                try:
-                    await t
-                except (asyncio.CancelledError, Exception):
-                    pass
+            gemini_task.cancel()
+            try:
+                await gemini_task
+            except (asyncio.CancelledError, Exception):
+                pass
 
     except WebSocketDisconnect:
         logger.debug("Debate live WebSocket disconnected cleanly.")

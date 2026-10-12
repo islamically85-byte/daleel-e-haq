@@ -43,6 +43,7 @@ def health_check():
 
     hadith_stat = get_hadith_status()
     meta = provider_manager.get_active_provider().get_metadata()
+    has_key = bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY != "your_gemini_api_key_here")
 
     return HealthResponse(
         status="healthy",
@@ -51,7 +52,9 @@ def health_check():
         quran_records_loaded=quran_count,
         hadith_configured=hadith_stat["is_configured"],
         active_provider=meta["provider_id"],
-        active_model=meta["model"]
+        active_model=meta["model"],
+        provider_configured=has_key,
+        provider_status="configured" if has_key else "unconfigured"
     )
 
 
@@ -108,16 +111,15 @@ def chat_endpoint(req: ChatRequest):
         language=req.language
     )
 
-    # 3. Handle optional image
+    # 3. Handle optional image (QA-25)
     image_bytes = None
     if req.image_base64:
         try:
-            # Check maximum size (5 MB limit)
             image_bytes = base64.b64decode(req.image_base64)
-            if len(image_bytes) > 5 * 1024 * 1024:
-                raise HTTPException(status_code=400, detail="Image exceeds 5MB size limit.")
-        except Exception as e:
-            logger.warning(f"Failed to decode attached image: {e}")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid base64 image data.")
+        if len(image_bytes) > 5 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Image exceeds 5MB size limit.")
 
     # 4. Check if conversational greeting vs religious inquiry
     is_greeting = is_conversational_greeting(req.question)
@@ -125,16 +127,34 @@ def chat_endpoint(req: ChatRequest):
     # Retrieve locally approved evidence from SQLite (skip for simple greetings)
     retrieved_evidence = [] if is_greeting else retrieve_relevant_evidence(req.question, max_results=6)
 
+    # Retrieve conversation history for context (QA-05)
+    history_messages = MemoryRepository.get_conversation_messages(conv_id=conv_id, limit=6)
+    conversation_history = []
+    if history_messages:
+        for m in history_messages:
+            if m["id"] != user_msg["id"]:
+                conversation_history.append({
+                    "role": m["role"],
+                    "content": m["content"]
+                })
+
     # 5. Step 5 & 6: Provider reasoning
     provider = provider_manager.get_active_provider()
     raw_model_response = provider.generate_grounded_response(
         question=req.question,
         retrieved_evidence=retrieved_evidence,
+        conversation_history=conversation_history,
         language=req.language,
         image_bytes=image_bytes,
         image_mime_type=req.image_mime_type or "image/jpeg",
         is_greeting=is_greeting
     )
+
+    # Handle provider failure explicitly: never persist provider error as verified assistant answer (QA-15)
+    if raw_model_response.get("status") == "error":
+        err_msg = raw_model_response.get("error_message") or raw_model_response.get("direct_answer") or "AI provider reasoning failed."
+        status_code = 503 if "api key" in err_msg.lower() or "not configured" in err_msg.lower() else 502
+        raise HTTPException(status_code=status_code, detail=err_msg)
 
     # 6. Step 7, 8, 9, 10: Citation Verification Engine
     verified_data = CitationVerificationEngine.verify_pipeline(
