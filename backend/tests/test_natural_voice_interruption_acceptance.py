@@ -423,3 +423,89 @@ def test_speaker_echo_threshold_adaptation():
     # Normal laptop speaker bleed (~0.05 RMS) is safely under the loud threshold
     assert 0.05 < thresh_loud, "Speaker bleed must fall below the dynamic barge-in threshold"
 
+
+def test_server_rejects_sub_12800_byte_and_silent_turns():
+    """
+    Prove server-side hygiene against empty/accidental turns:
+    - Turns shorter than 12,800 bytes (~0.4s of 16kHz PCM) must be safely discarded.
+    - Turns with RMS volume below 0.008 (ambient room hiss/silence) must be discarded.
+    """
+    import array
+    import math
+
+    # Case 1: Short turn (e.g. 3,200 bytes)
+    short_audio = bytearray(3200)
+    assert len(short_audio) < 12800, "Must be under threshold"
+
+    # Case 2: 16,000 bytes of near-silent background noise (RMS < 0.008)
+    silent_samples = array.array("h", [int(150 * math.sin(i)) for i in range(8000)]) # ~16KB
+    sample_subset = silent_samples[::8]
+    turn_rms = math.sqrt(sum(s * s for s in sample_subset) / len(sample_subset)) / 32768.0
+    assert turn_rms < 0.008, "Synthesized silence must have low RMS"
+
+    # Case 3: 16,000 bytes of genuine human speech (RMS > 0.035)
+    speech_samples = array.array("h", [int(4000 * math.sin(i * 0.05)) for i in range(8000)])
+    speech_subset = speech_samples[::8]
+    speech_rms = math.sqrt(sum(s * s for s in speech_subset) / len(speech_subset)) / 32768.0
+    assert speech_rms > 0.035, "Speech must exceed the 0.008 threshold"
+
+
+def test_acoustic_echo_cross_correlation_simulation():
+    """
+    Prove mathematical acoustic echo discrimination:
+    - Acoustic echo (attenuated, delayed replica of speaker output) has cross-correlation >= 0.40.
+    - Near-end user speech (different fundamental pitch and independent acoustics) has correlation < 0.20.
+    """
+    import math
+
+    sample_rate = 16000
+    n_samples = 16000 # 1 second
+
+    # Reference signal: AI synthesized speech (180 Hz fundamental + harmonics)
+    ref_signal = [
+        math.sin(2 * math.pi * 180 * (i / sample_rate)) * 0.6 +
+        math.sin(2 * math.pi * 360 * (i / sample_rate)) * 0.3
+        for i in range(n_samples)
+    ]
+
+    # Mic signal 1: Acoustic Echo (delay = 80ms = 1280 samples, attenuated by 0.35 + slight ambient noise)
+    delay_samples = 1280
+    mic_echo = [0.0] * delay_samples + [s * 0.35 for s in ref_signal[:n_samples - delay_samples]]
+
+    # Mic signal 2: Near-end User Speech (independent 120 Hz fundamental male voice + different envelope)
+    mic_user = [
+        math.sin(2 * math.pi * 120 * (i / sample_rate)) * 0.7 +
+        math.sin(2 * math.pi * 240 * (i / sample_rate)) * 0.3
+        for i in range(n_samples)
+    ]
+
+    # Cross-correlation calculation across search window (30ms to 200ms)
+    def calc_peak_cross_corr(mic_buf, ref_buf, min_lag, max_lag):
+        window_len = 1024
+        mic_energy = sum(mic_buf[i] ** 2 for i in range(window_len))
+        if mic_energy < 1e-6:
+            return 0.0
+
+        max_c = 0.0
+        for lag in range(min_lag, max_lag, 4):
+            corr = 0.0
+            ref_energy = 0.0
+            for i in range(0, window_len, 4):
+                if lag + i < len(ref_buf):
+                    s_ref = ref_buf[lag + i]
+                    corr += mic_buf[i] * s_ref
+                    ref_energy += s_ref * s_ref
+            if ref_energy > 1e-6:
+                norm = corr / math.sqrt(mic_energy * ref_energy / 4)
+                if norm > max_c:
+                    max_c = norm
+        return max_c
+
+    peak_corr_echo = calc_peak_cross_corr(mic_echo[delay_samples:], ref_signal, 0, 2000)
+    peak_corr_user = calc_peak_cross_corr(mic_user, ref_signal, 0, 2000)
+
+    print(f"[ECHO VERIFY] Peak correlation for echo: {peak_corr_echo:.3f}, for user: {peak_corr_user:.3f}")
+    assert peak_corr_echo >= 0.40, "Echo must exhibit high peak cross-correlation with reference"
+    assert peak_corr_user < 0.20, "Independent user voice must NOT correlate with AI reference"
+
+

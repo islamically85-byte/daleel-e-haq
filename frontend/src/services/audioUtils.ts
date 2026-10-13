@@ -168,6 +168,73 @@ export interface VoiceAnalysisResult {
   isVoiceLike: boolean;
   isIntentionalBargeIn: boolean;
   bargeInThreshold: number;
+  isEcho: boolean;
+  echoCorrelation: number;
+}
+
+/**
+ * Computes peak normalized cross-correlation between incoming microphone PCM buffer
+ * and recently played AI reference PCM ring buffer across plausible acoustic delay lags (25ms - 350ms).
+ * High correlation (>= 0.30) indicates physical speaker-to-mic acoustic bleed, NOT near-end user speech.
+ */
+export function calculateAcousticEchoCorrelation(
+  micBuffer: Float32Array,
+  refRingBuffer: Float32Array,
+  refWriteIndex: number,
+  sampleRate = 16000,
+  minLagMs = 25,
+  maxLagMs = 350
+): number {
+  const refLen = refRingBuffer.length;
+  const micLen = micBuffer.length;
+  if (refLen < 1024 || micLen < 256) return 0;
+
+  // Analysis window: up to 1024 samples (~64ms at 16kHz)
+  const windowLen = Math.min(1024, micLen);
+  const step = 4; // Decimate by 4 -> effective 4kHz sampling rate for fast sub-millisecond calculation
+  const effWindow = Math.floor(windowLen / step);
+
+  const minLag = Math.max(1, Math.floor((minLagMs * sampleRate) / (1000 * step)));
+  const maxLag = Math.min(
+    Math.floor((refLen - windowLen) / step),
+    Math.ceil((maxLagMs * sampleRate) / (1000 * step))
+  );
+
+  if (minLag >= maxLag) return 0;
+
+  // Compute energy of mic window
+  let micEnergy = 0;
+  for (let i = 0; i < effWindow; i++) {
+    const s = micBuffer[i * step];
+    micEnergy += s * s;
+  }
+  if (micEnergy < 1e-5) return 0;
+
+  let maxCorr = 0;
+
+  // Search acoustic delays with step 2 (sub-millisecond resolution)
+  for (let lag = minLag; lag <= maxLag; lag += 2) {
+    let crossCorr = 0;
+    let refEnergy = 0;
+
+    for (let i = 0; i < effWindow; i++) {
+      const sMic = micBuffer[i * step];
+      // Lookup sample in circular ref buffer at current lag
+      const refIdx = (refWriteIndex - ((lag + effWindow - 1 - i) * step) % refLen + refLen * 10) % refLen;
+      const sRef = refRingBuffer[refIdx];
+      crossCorr += sMic * sRef;
+      refEnergy += sRef * sRef;
+    }
+
+    if (refEnergy > 1e-5) {
+      const normCorr = crossCorr / Math.sqrt(micEnergy * refEnergy);
+      if (normCorr > maxCorr) {
+        maxCorr = normCorr;
+      }
+    }
+  }
+
+  return Math.max(0, Math.min(1, maxCorr));
 }
 
 /**
@@ -179,7 +246,8 @@ export function analyzeAudioFrame(
   sampleRate: number,
   noiseFloor: number,
   aiPlaybackVolume: number,
-  isAssistantSpeaking: boolean
+  isAssistantSpeaking: boolean,
+  echoCorrelation = 0
 ): VoiceAnalysisResult {
   const rms = calculateRMSVolume(buffer);
   let sumSq = 0;
@@ -202,22 +270,30 @@ export function analyzeAudioFrame(
     crestFactor < 4.8;
 
   const isVoiced = periodicity >= 0.20;
-  const isVoiceLike = isSpeechEnvelope && (isVoiced || (rms > noiseFloor * 2.0 && zcr <= 0.38));
+
+  // Speaker acoustic echo detection:
+  // If the incoming mic buffer correlates with recent AI playback audio (>= 0.30), it is echo.
+  const isEcho = isAssistantSpeaking && echoCorrelation >= 0.30;
 
   // Speaker echo coupling compensation during AI speech:
-  // Modern browsers utilize hardware/OS echo cancellation. We add a modest chassis bleed offset
-  // without artificially raising the threshold beyond human speech range.
-  const expectedSpeakerBleed = isAssistantSpeaking ? Math.min(0.02, aiPlaybackVolume * 0.035) : 0;
+  // On open laptop chassis, physical speaker bleed into mic scales with playback volume.
+  const expectedSpeakerBleed = isAssistantSpeaking ? Math.min(0.20, aiPlaybackVolume * 0.35) : 0;
   const bargeInThreshold = Math.max(
-    0.028,
-    Math.min(0.065, noiseFloor * 1.8 + expectedSpeakerBleed + 0.010)
+    0.075,
+    Math.min(0.25, noiseFloor * 2.5 + expectedSpeakerBleed + 0.02)
   );
 
+  // Voice-like classification:
+  // During AI speech, if echo is present, it is rejected to prevent self-interruption.
+  const isVoiceLike = !isEcho && isSpeechEnvelope && (isVoiced || (rms > noiseFloor * 2.0 && zcr <= 0.38));
+
   // Intentional barge-in:
-  // - Acoustic RMS energy exceeding the dynamic noise floor
+  // - Acoustic RMS energy exceeding the dynamic noise floor + physical speaker bleed
   // - Conforms to human speech acoustic envelope (not a transient click or glass impact)
   // - Either periodic vocal-fold harmonic vibration (vowels) OR clear speech energy (plosives/stops)
+  // - Positively verified as NOT acoustic echo from the laptop speakers
   const isIntentionalBargeIn =
+    !isEcho &&
     rms > bargeInThreshold &&
     isSpeechEnvelope &&
     (periodicity >= 0.22 || (rms > bargeInThreshold * 1.25 && zcr <= 0.38));
@@ -231,7 +307,9 @@ export function analyzeAudioFrame(
     crestFactor,
     isVoiceLike,
     isIntentionalBargeIn,
-    bargeInThreshold
+    bargeInThreshold,
+    isEcho,
+    echoCorrelation
   };
 }
 

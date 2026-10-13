@@ -14,7 +14,7 @@ logger = logging.getLogger("daleel.dictate")
 dictate_router = APIRouter()
 
 DICTATION_MODEL = "gemini-3.5-transcribe-live"
-NORMALIZATION_MODELS = ["gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
+NORMALIZATION_MODELS = [settings.GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.0-flash"]
 
 
 class DictateNormalizeRequest(BaseModel):
@@ -102,13 +102,16 @@ async def normalize_transcript(payload: DictateNormalizeRequest):
 
     for model_name in NORMALIZATION_MODELS:
         try:
-            resp = client.models.generate_content(
-                model=model_name,
-                contents=normalization_prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1
-                )
+            resp = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model=model_name,
+                    contents=normalization_prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1
+                    )
+                ),
+                timeout=6.0
             )
             raw_text = resp.text.strip()
             data = json.loads(raw_text)

@@ -1,5 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { downsampleAndConvertToPCM16, calculateRMSVolume, analyzeAudioFrame } from '../services/audioUtils';
+import {
+  downsampleAndConvertToPCM16,
+  calculateRMSVolume,
+  analyzeAudioFrame,
+  calculateAcousticEchoCorrelation
+} from '../services/audioUtils';
 import { voicePreferences } from '../services/voicePreferences';
 import { api } from '../services/api';
 
@@ -124,6 +129,11 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   const animationFrameRef = useRef<number | null>(null);
   const turnsRef = useRef<DebateTurn[]>([]);
 
+  // AI 16kHz PCM playback reference buffer for real-time acoustic echo correlation (3.0s = 48,000 samples)
+  const AI_PLAYBACK_REF_SIZE = 48000;
+  const aiPlaybackRefBuffer = useRef<Float32Array>(new Float32Array(AI_PLAYBACK_REF_SIZE));
+  const aiPlaybackRefWriteIdx = useRef<number>(0);
+
   useEffect(() => {
     turnsRef.current = turns;
     try {
@@ -157,6 +167,8 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       nextPlayTimeRef.current = audioContextRef.current.currentTime;
     }
     aiVolumeRef.current = 0;
+    aiPlaybackRefBuffer.current.fill(0);
+    aiPlaybackRefWriteIdx.current = 0;
     setAiSpeakingState(false);
     setAiVolume(0);
   }, [setAiSpeakingState]);
@@ -180,6 +192,18 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       for (let i = 0; i < int16Array.length; i++) {
         float32Array[i] = int16Array[i] / 32768.0;
       }
+
+      // Copy downsampled samples to circular reference buffer for acoustic echo cancellation
+      const ratio = sampleRate / 16000;
+      const targetLen = Math.floor(float32Array.length / ratio);
+      const refBuf = aiPlaybackRefBuffer.current;
+      let wIdx = aiPlaybackRefWriteIdx.current;
+      for (let i = 0; i < targetLen; i++) {
+        const srcIdx = Math.floor(i * ratio);
+        refBuf[wIdx] = float32Array[srcIdx] || 0;
+        wIdx = (wIdx + 1) % AI_PLAYBACK_REF_SIZE;
+      }
+      aiPlaybackRefWriteIdx.current = wIdx;
 
       const audioBuffer = ctx.createBuffer(1, float32Array.length, sampleRate);
       audioBuffer.copyToChannel(float32Array, 0);
@@ -654,12 +678,35 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
 
         // Check if AI is currently playing speech on speakers
         const isAiCurrentlySpeaking = isAiSpeakingRef.current || activeSourcesRef.current.length > 0;
-        const effectiveThreshold = isAiCurrentlySpeaking
-          ? Math.max(dynamicSpeechThreshold * 1.85, aiVolumeRef.current * 0.22 + 0.028)
-          : dynamicSpeechThreshold;
 
-        // Perform comprehensive multi-feature acoustic analysis (ZCR, pitch autocorrelation, spectral diff)
-        const analysis = analyzeAudioFrame(inputData, sampleRate, noiseFloor, aiVolumeRef.current, isAiCurrentlySpeaking);
+        // Downsample input chunk to 16kHz Float32Array for correlation analysis
+        const mic16kRatio = sampleRate / 16000;
+        const mic16kLen = Math.floor(inputData.length / mic16kRatio);
+        const mic16k = new Float32Array(mic16kLen);
+        for (let i = 0; i < mic16kLen; i++) {
+          mic16k[i] = inputData[Math.floor(i * mic16kRatio)] || 0;
+        }
+
+        const echoCorrelation = isAiCurrentlySpeaking
+          ? calculateAcousticEchoCorrelation(
+              mic16k,
+              aiPlaybackRefBuffer.current,
+              aiPlaybackRefWriteIdx.current,
+              16000,
+              25,
+              350
+            )
+          : 0;
+
+        // Perform comprehensive multi-feature acoustic analysis (ZCR, pitch autocorrelation, spectral diff, echo)
+        const analysis = analyzeAudioFrame(
+          inputData,
+          sampleRate,
+          noiseFloor,
+          aiVolumeRef.current,
+          isAiCurrentlySpeaking,
+          echoCorrelation
+        );
         const rms = analysis.rms;
 
         // Throttled volume telemetry to eliminate React re-render stutter (updates at max ~12Hz or on large delta)
@@ -681,9 +728,15 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
 
         // 2. AI Speaking Phase: Sustained ~2.5s speech required to interrupt
         if (isAiCurrentlySpeaking) {
-          const isInterruptionCandidate =
-            analysis.isIntentionalBargeIn ||
-            (analysis.isVoiceLike && rms >= effectiveThreshold);
+          if (analysis.isEcho) {
+            // Physical speaker bleed detected through laptop microphone!
+            // Aggressively drain barge-in accumulator to guarantee AI NEVER interrupts itself
+            sustainedAiSpeechMsRef.current = Math.max(0, sustainedAiSpeechMsRef.current - frameDurationMs * 2);
+            interruptionSilenceMsRef.current = 0;
+            return;
+          }
+
+          const isInterruptionCandidate = analysis.isIntentionalBargeIn;
 
           if (isInterruptionCandidate) {
             sustainedAiSpeechMsRef.current += frameDurationMs;
@@ -693,8 +746,8 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
             if (sustainedAiSpeechMsRef.current >= 2500) {
               sustainedAiSpeechMsRef.current = 0;
               interruptionSilenceMsRef.current = 0;
-              // Extract the complete buffered speech history (~3.5s, ~42 frames in chronological order)
-              const framesToFlush = [...rollingInterruptionBufferRef.current.slice(-42)];
+              // Extract the user speech history corresponding to the deliberate barge-in streak (~30 frames, ~2.5s)
+              const framesToFlush = [...rollingInterruptionBufferRef.current.slice(-30)];
               interrupt(framesToFlush);
             }
           } else {

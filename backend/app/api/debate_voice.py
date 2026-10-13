@@ -294,6 +294,10 @@ async def debate_live_websocket(
         "For example, if the user interrupts: 'Wait, explain the first verse instead' or 'ٹھہریں، پہلے پہلی آیت کی وضاحت کریں', "
         "immediately focus on verse 1 of the Surah being discussed (e.g. Surah 112:1 - 'Say: He is Allah, the One' / قُلْ هُوَ اللَّهُ أَحَدٌ), "
         "call 'get_quran_evidence' to verify, and explain its theological meaning directly and concisely."
+        "\n11. NO CANNED INTRODUCTIONS OR REPETITIVE PROMPTING:\n"
+        "NEVER repeat canned boilerplate phrases like 'Please state your religious claim or question so that we may examine it through scholarly and scriptural evidence' or 'برائے مہربانی اپنا سوال بیان کریں' repeatedly. "
+        "When the user speaks, respond directly, conversationally, and concisely to their actual words and intention. "
+        "If the user tells you to speak Urdu (e.g., 'اردو میں بات کرو' or 'urdu m bat kro'), acknowledge in natural Urdu immediately (e.g., 'جی بالکل، فرمائیے، میں آپ کی بات سن رہی ہوں / سن رہا ہوں') and continue exclusively in Urdu."
         + urdu_directive
         + gender_directive
     )
@@ -338,7 +342,7 @@ async def debate_live_websocket(
                     current_turn_audio.clear()
                     return
                 async with turn_lock:
-                    if len(current_turn_audio) < 3200:
+                    if len(current_turn_audio) < 12800:
                         current_turn_audio.clear()
                         await websocket.send_json({
                             "type": "state_change",
@@ -346,6 +350,28 @@ async def debate_live_websocket(
                             "generation_id": active_generation_id
                         })
                         return
+
+                    # Reject silent turns and ambient noise floor bursts
+                    import array
+                    import math
+                    samples = array.array("h", current_turn_audio)
+                    step = max(1, len(samples) // 1000)
+                    sample_subset = samples[::step]
+                    turn_rms = (
+                        math.sqrt(sum(s * s for s in sample_subset) / len(sample_subset)) / 32768.0
+                        if sample_subset
+                        else 0.0
+                    )
+                    if turn_rms < 0.008:
+                        logger.info(f"Discarding silent turn audio (RMS={turn_rms:.4f}, bytes={len(current_turn_audio)}).")
+                        current_turn_audio.clear()
+                        await websocket.send_json({
+                            "type": "state_change",
+                            "state": "user_turn",
+                            "generation_id": active_generation_id
+                        })
+                        return
+
                     audio_bytes = bytes(current_turn_audio)
                     current_turn_audio.clear()
                     try:
@@ -470,7 +496,7 @@ async def debate_live_websocket(
                         if client_is_muted:
                             continue
                         now = asyncio.get_event_loop().time()
-                        if len(current_turn_audio) >= 8000 and (now - last_audio_time) >= 1.6:
+                        if len(current_turn_audio) >= 12800 and (now - last_audio_time) >= 1.6:
                             await commit_user_audio_turn()
                 except asyncio.CancelledError:
                     pass

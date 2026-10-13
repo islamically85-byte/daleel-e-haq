@@ -149,16 +149,17 @@ CANONICAL_SAHIH_HADITHS = [
         "book_number": 1,
         "book_name": "Faith (كتاب الإيمان)",
         "chapter_number": 23,
-        "chapter_name": "Religion is sincerity (Al-Nasihah)",
-        "hadith_number": 77,
+        "chapter_name": "Explanation that religion is sincerity (بيان أن الدين النصيحة)",
+        "hadith_number": 55,
+        "alternate_numbering": "Sunnah.com: 55a; In-book: Book 1, Hadith 95; USC-MSA: Book 1, Hadith 98",
         "narrator": "Tamim al-Dari (تميم الداري رضي الله عنه)",
         "chain_isnad": "Muhammad ibn Abbad -> Sufyan -> Suhayl -> Ata ibn Yazid -> Tamim al-Dari",
         "text_ar": "الدِّينُ النَّصِيحَةُ. قُلْنَا: لِمَنْ؟ قَالَ: لِلَّهِ وَلِكِتَابِهِ وَلِرَسُولِهِ وَلأَئِمَّةِ الْمُسْلِمِينَ وَعَامَّتِهِمْ.",
         "translation_en": "The Prophet said: Religion is sincerity (An-Nasihah). We said: To whom? He said: To Allah, His Book, His Messenger, and to the leaders of the Muslims and their common folk.",
         "translation_ur": "رسول اللہ صلی اللہ علیہ وسلم نے فرمایا: دین خیر خواہی کا نام ہے۔ ہم نے عرض کیا: کس کے لیے؟ آپ نے فرمایا: اللہ کے لیے، اس کی کتاب کے لیے، اس کے رسول کے لیے، اور مسلمانوں کے حکمرانوں اور ان کے عام لوگوں کے لیے۔",
         "grade": "Sahih",
-        "graded_by": "Imam Muslim (Sahih Muslim #77)",
-        "provenance_url": "https://sunnah.com/muslim:77",
+        "graded_by": "Imam Muslim (Sahih Muslim #55a / In-book: Bk 1, H 95)",
+        "provenance_url": "https://sunnah.com/muslim:55a",
         "rights_basis": "Classical Hadith Text (Public Domain)",
         "review_status": "approved"
     },
@@ -170,16 +171,17 @@ CANONICAL_SAHIH_HADITHS = [
         "book_number": 78,
         "book_name": "Good Manners (كتاب الأدب)",
         "chapter_number": 76,
-        "chapter_name": "Patience and controlling oneself in anger",
-        "hadith_number": 6011,
+        "chapter_name": "Patience and controlling oneself in anger (باب ما ينهى من الغضب)",
+        "hadith_number": 6114,
+        "alternate_numbering": "Sunnah.com: 6114; In-book: Book 78, Hadith 141; USC-MSA: Vol. 8, Book 73, Hadith 135",
         "narrator": "Abu Hurairah (أبو هريرة رضي الله عنه)",
         "chain_isnad": "Abdullah ibn Yusuf -> Malik -> Ibn Shihab -> Sa'id ibn al-Musayyib -> Abu Hurairah",
         "text_ar": "لَيْسَ الشَّدِيدُ بِالصُّرَعَةِ، إِنَّمَا الشَّدِيدُ الَّذِي يَمْلِكُ نَفْسَهُ عِنْدَ الْغَضَبِ.",
         "translation_en": "The strong is not the one who overcomes the people by his strength, but the strong is the one who controls himself while in anger.",
         "translation_ur": "پہلوان وہ نہیں جو کشتی میں پچھاڑ دے، بلکہ اصل طاقتور وہ ہے جو غصے کے وقت اپنے نفس پر قابو رکھے۔",
         "grade": "Sahih",
-        "graded_by": "Imam al-Bukhari & Imam Muslim (Muttafaqun Alayh)",
-        "provenance_url": "https://sunnah.com/bukhari:6011",
+        "graded_by": "Imam al-Bukhari & Imam Muslim (Muttafaqun Alayh; Sahih al-Bukhari #6114)",
+        "provenance_url": "https://sunnah.com/bukhari:6114",
         "rights_basis": "Classical Hadith Text (Public Domain)",
         "review_status": "approved"
     },
@@ -254,18 +256,65 @@ CANONICAL_SAHIH_HADITHS = [
         "book_number": 81,
         "book_name": "To make the Heart Tender (كتاب الرقاق)",
         "chapter_number": 38,
-        "chapter_name": "Humility and Devotion (Hadith Qudsi)",
-        "hadith_number": 6491,
+        "chapter_name": "Humility and Devotion (Hadith Qudsi - باب التواضع)",
+        "hadith_number": 6502,
+        "alternate_numbering": "Sunnah.com: 6502; In-book: Book 81, Hadith 91; USC-MSA: Vol. 8, Book 76, Hadith 509",
         "narrator": "Abu Hurairah (أبو هريرة رضي الله عنه)",
         "chain_isnad": "Muhammad ibn Uthman -> Khalid ibn Makhlad -> Sulayman ibn Bilal -> Sharik ibn Abi Namir -> Ata -> Abu Hurairah",
         "text_ar": "إِنَّ اللَّهَ قَالَ: مَنْ عَادَى لِي وَلِيًّا فَقَدْ آذَنْتُهُ بِالْحَرْبِ، وَمَا تَقَرَّبَ إِلَىَّ عَبْدِي بِشَىْءٍ أَحَبَّ إِلَىَّ مِمَّا افْتَرَضْتُ عَلَيْهِ، وَمَا يَزَالُ عَبْدِي يَتَقَرَّبُ إِلَىَّ بِالنَّوَافِلِ حَتَّى أُحِبَّهُ، فَإِذَا أَحْبَبْتُهُ كُنْتُ سَمْعَهُ الَّذِي يَسْمَعُ بِهِ، وَبَصَرَهُ الَّذِي يُبْصِرُ بِهِ، وَيَدَهُ الَّتِي يَبْطِشُ بِهَا، وَرِجْلَهُ الَّتِي يَمْشِي بِهَا، وَإِنْ سَأَلَنِي لأُعْطِيَنَّهُ، وَلَئِنِ اسْتَعَاذَنِي لأُعِيذَنَّهُ.",
         "translation_en": "Allah said: Whosoever shows enmity to someone devoted to Me, I shall be at war with him. My servant draws not near to Me with anything more loved by Me than the religious duties I have enjoined upon him, and My servant continues to draw near to Me with supererogatory works so that I shall love him. When I love him I am his hearing with which he hears, his seeing with which he sees, his hand with which he strikes and his foot with which he walks. Were he to ask [something] of Me, I would surely give it to him, and were he to ask Me for refuge, I would surely grant him it.",
         "translation_ur": "اللہ تعالیٰ نے فرمایا: جو میرے کسی ولی سے دشمنی رکھے تو میرا اس کے خلاف اعلانِ جنگ ہے۔ اور میرا بندہ جن چیزوں کے ذریعے میرا قرب حاصل کرتا ہے ان میں مجھے سب سے زیادہ پسند وہ فرائض ہیں جو میں نے اس پر لازم کیے ہیں، اور میرا بندہ نفل عبادات کے ذریعے مسلسل میرا قرب حاصل کرتا رہتا ہے یہاں تک کہ میں اس سے محبت کرنے لگتا ہوں۔ پھر جب میں اس سے محبت کرتا ہوں تو میں اس کا کان بن جاتا ہوں جس سے وہ سنتا ہے، اس کی آنکھ بن جاتا ہوں جس سے وہ دیکھتا ہے، اس کا ہاتھ بن جاتا ہوں جس سے وہ پکڑتا ہے، اور اس کا پاؤں بن جاتا ہوں جس سے وہ چلتا ہے۔ اگر وہ مجھ سے مانگے تو میں اسے ضرور دیتا ہوں، اور اگر وہ میری پناہ چاہے تو میں اسے ضرور پناہ دیتا ہوں۔",
         "grade": "Sahih",
-        "graded_by": "Imam al-Bukhari (Sahih al-Bukhari #6491)",
-        "provenance_url": "https://sunnah.com/bukhari:6491",
+        "graded_by": "Imam al-Bukhari (Sahih al-Bukhari #6502)",
+        "provenance_url": "https://sunnah.com/bukhari:6502",
         "rights_basis": "Classical Hadith Text (Public Domain)",
         "review_status": "approved"
+    }
+]
+
+# Quarantine list of legacy numbering mismatches to protect against regressions
+LEGACY_QUARANTINED_HADITHS = [
+    {
+        "collection": "Sahih Muslim",
+        "collection_slug": "sahih_muslim",
+        "hadith_number": 77,
+        "text_ar": "الدِّينُ النَّصِيحَةُ",
+        "translation_en": "[QUARANTINED: Discrepancy detected. Muslim 77 is about the Ansar; canonical reference for Religion is Sincerity is Muslim 55a]",
+        "translation_ur": "[قرنطینہ شدہ: حوالہ نمبر 77 غلط ہے، صحیح حوالہ صحیح مسلم 55a ہے]",
+        "narrator": "Tamim al-Dari",
+        "grade": "Unverified Reference",
+        "graded_by": "Quarantined by Daleel Safety Audit",
+        "provenance_url": "https://sunnah.com/muslim:77",
+        "rights_basis": "Audit Quarantine",
+        "review_status": "quarantined"
+    },
+    {
+        "collection": "Sahih al-Bukhari",
+        "collection_slug": "sahih_bukhari",
+        "hadith_number": 6011,
+        "text_ar": "لَيْسَ الشَّدِيدُ بِالصُّرَعَةِ",
+        "translation_en": "[QUARANTINED: Discrepancy detected. Bukhari 6011 is about believers' mutual affection; canonical reference for controlling anger is Bukhari 6114]",
+        "translation_ur": "[قرنطینہ شدہ: حوالہ نمبر 6011 غلط ہے، صحیح حوالہ صحیح بخاری 6114 ہے]",
+        "narrator": "Abu Hurairah",
+        "grade": "Unverified Reference",
+        "graded_by": "Quarantined by Daleel Safety Audit",
+        "provenance_url": "https://sunnah.com/bukhari:6011",
+        "rights_basis": "Audit Quarantine",
+        "review_status": "quarantined"
+    },
+    {
+        "collection": "Sahih al-Bukhari",
+        "collection_slug": "sahih_bukhari",
+        "hadith_number": 6491,
+        "text_ar": "مَنْ عَادَى لِي وَلِيًّا",
+        "translation_en": "[QUARANTINED: Discrepancy detected. Bukhari 6491 is about recording of intentions; canonical reference for Hadith Qudsi of Allah's Wali is Bukhari 6502]",
+        "translation_ur": "[قرنطینہ شدہ: حوالہ نمبر 6491 غلط ہے، صحیح حوالہ صحیح بخاری 6502 ہے]",
+        "narrator": "Abu Hurairah",
+        "grade": "Unverified Reference",
+        "graded_by": "Quarantined by Daleel Safety Audit",
+        "provenance_url": "https://sunnah.com/bukhari:6491",
+        "rights_basis": "Audit Quarantine",
+        "review_status": "quarantined"
     }
 ]
 
@@ -284,7 +333,13 @@ def ingest():
     for hadith in CANONICAL_SAHIH_HADITHS:
         hid = import_hadith_record(hadith, conn)
         imported_ids.append(hid)
-        print(f"  [+] Ingested: {hid} - {hadith['collection']} #{hadith['hadith_number']}")
+        print(f"  [+] Ingested approved: {hid} - {hadith['collection']} #{hadith['hadith_number']}")
+
+    print(f"Ingesting {len(LEGACY_QUARANTINED_HADITHS)} quarantined legacy Hadith records...")
+    for hadith in LEGACY_QUARANTINED_HADITHS:
+        hid = import_hadith_record(hadith, conn)
+        imported_ids.append(hid)
+        print(f"  [!] Ingested quarantined: {hid} - {hadith['collection']} #{hadith['hadith_number']}")
 
     conn.commit()
     conn.close()
