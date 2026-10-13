@@ -424,30 +424,30 @@ def test_speaker_echo_threshold_adaptation():
     assert 0.05 < thresh_loud, "Speaker bleed must fall below the dynamic barge-in threshold"
 
 
-def test_server_rejects_sub_12800_byte_and_silent_turns():
+def test_server_rejects_sub_4800_byte_and_silent_turns():
     """
     Prove server-side hygiene against empty/accidental turns:
-    - Turns shorter than 12,800 bytes (~0.4s of 16kHz PCM) must be safely discarded.
-    - Turns with RMS volume below 0.008 (ambient room hiss/silence) must be discarded.
+    - Turns shorter than 4,800 bytes (~0.15s of 16kHz PCM) must be safely discarded.
+    - Turns with RMS volume below 0.010 (ambient room hiss/silence) must be discarded.
     """
     import array
     import math
 
     # Case 1: Short turn (e.g. 3,200 bytes)
     short_audio = bytearray(3200)
-    assert len(short_audio) < 12800, "Must be under threshold"
+    assert len(short_audio) < 4800, "Must be under threshold"
 
-    # Case 2: 16,000 bytes of near-silent background noise (RMS < 0.008)
+    # Case 2: 16,000 bytes of near-silent background noise (RMS < 0.010)
     silent_samples = array.array("h", [int(150 * math.sin(i)) for i in range(8000)]) # ~16KB
     sample_subset = silent_samples[::8]
     turn_rms = math.sqrt(sum(s * s for s in sample_subset) / len(sample_subset)) / 32768.0
-    assert turn_rms < 0.008, "Synthesized silence must have low RMS"
+    assert turn_rms < 0.010, "Synthesized silence must have low RMS"
 
     # Case 3: 16,000 bytes of genuine human speech (RMS > 0.035)
     speech_samples = array.array("h", [int(4000 * math.sin(i * 0.05)) for i in range(8000)])
     speech_subset = speech_samples[::8]
     speech_rms = math.sqrt(sum(s * s for s in speech_subset) / len(speech_subset)) / 32768.0
-    assert speech_rms > 0.035, "Speech must exceed the 0.008 threshold"
+    assert speech_rms > 0.035, "Speech must exceed the 0.010 threshold"
 
 
 def test_acoustic_echo_cross_correlation_simulation():

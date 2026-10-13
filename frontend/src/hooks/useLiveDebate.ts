@@ -163,9 +163,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       } catch {}
     });
     activeSourcesRef.current = [];
-    if (audioContextRef.current) {
-      nextPlayTimeRef.current = audioContextRef.current.currentTime;
-    }
+    nextPlayTimeRef.current = 0;
     aiVolumeRef.current = 0;
     aiPlaybackRefBuffer.current.fill(0);
     aiPlaybackRefWriteIdx.current = 0;
@@ -183,11 +181,14 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     try {
       const binaryString = atob(base64Data);
       const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
+      // Guard against odd byte lengths causing Int16Array RangeError
+      const validLen = len - (len % 2);
+      if (validLen < 2) return;
+      const bytes = new Uint8Array(validLen);
+      for (let i = 0; i < validLen; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
-      const int16Array = new Int16Array(bytes.buffer);
+      const int16Array = new Int16Array(bytes.buffer, 0, validLen / 2);
       const float32Array = new Float32Array(int16Array.length);
       for (let i = 0; i < int16Array.length; i++) {
         float32Array[i] = int16Array[i] / 32768.0;
@@ -205,6 +206,14 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       }
       aiPlaybackRefWriteIdx.current = wIdx;
 
+      // Micro-fade (0.5ms linear ramp on boundary samples) to eliminate high-frequency clicks
+      const rampLen = Math.min(16, Math.floor(float32Array.length / 4));
+      for (let i = 0; i < rampLen; i++) {
+        const factor = (i + 1) / rampLen;
+        float32Array[i] *= factor;
+        float32Array[float32Array.length - 1 - i] *= factor;
+      }
+
       const audioBuffer = ctx.createBuffer(1, float32Array.length, sampleRate);
       audioBuffer.copyToChannel(float32Array, 0);
 
@@ -218,7 +227,13 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       }
 
       const currentTime = ctx.currentTime;
-      const startTime = Math.max(currentTime, nextPlayTimeRef.current);
+      // Jitter buffer: If queue is empty or has fallen behind (underrun), introduce 50ms initial jitter cushion
+      let startTime: number;
+      if (nextPlayTimeRef.current <= currentTime + 0.005) {
+        startTime = currentTime + 0.050; // 50ms lead-in cushion
+      } else {
+        startTime = nextPlayTimeRef.current;
+      }
       source.start(startTime);
       nextPlayTimeRef.current = startTime + audioBuffer.duration;
 
@@ -232,6 +247,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         }
         // When the final queued audio chunk finishes playing on the speakers:
         if (activeSourcesRef.current.length === 0) {
+          nextPlayTimeRef.current = 0;
           aiVolumeRef.current = 0;
           setAiVolume(0);
           // Only return to user_turn if provider response has completed AND local audio queue has drained (P1 blocker 5)
@@ -300,6 +316,23 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     };
   }, [cleanupAudio]);
 
+  const finishTurnManual = useCallback(() => {
+    if (phaseRef.current === 'user_turn') {
+      // If user is muted and has not spoken anything in this turn, do not hang in thinking
+      if (isMutedRef.current && !hasSpokenInTurnRef.current) {
+        return;
+      }
+      hasSpokenInTurnRef.current = false;
+      preRollBufferRef.current = [];
+      sustainedAiSpeechMsRef.current = 0;
+      interruptionSilenceMsRef.current = 0;
+      setPhaseSafe('thinking');
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'turn_complete' }));
+      }
+    }
+  }, [setPhaseSafe]);
+
   const toggleMute = useCallback(() => {
     const nextMuted = !isMutedRef.current;
     isMutedRef.current = nextMuted;
@@ -327,8 +360,13 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       speechStreakRef.current = 0;
       silenceStreakRef.current = 0;
       lastSpeechStateRef.current = false;
+
+      // If user had spoken before muting, automatically commit their turn!
+      if (hasSpokenInTurnRef.current && phaseRef.current === 'user_turn') {
+        finishTurnManual();
+      }
     }
-  }, []);
+  }, [finishTurnManual]);
 
   const interrupt = useCallback((flushFrames?: ArrayBuffer[] | unknown) => {
     clearWatchdog();
@@ -367,19 +405,6 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       hasSpokenInTurnRef.current = false;
     }
   }, [stopAiPlayback, setPhaseSafe, clearWatchdog]);
-
-  const finishTurnManual = useCallback(() => {
-    if (phaseRef.current === 'user_turn') {
-      hasSpokenInTurnRef.current = false;
-      preRollBufferRef.current = [];
-      sustainedAiSpeechMsRef.current = 0;
-      interruptionSilenceMsRef.current = 0;
-      setPhaseSafe('thinking');
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'turn_complete' }));
-      }
-    }
-  }, [setPhaseSafe]);
 
   const startSession = useCallback(async (customVoice?: string, customLanguage?: string) => {
     setError(null);
@@ -668,16 +693,22 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         const sampleRate = audioCtx.sampleRate;
         const frameDurationMs = (inputData.length / sampleRate) * 1000; // ~85.3ms
 
-        // Dynamic noise floor tracking during quiet intervals
-        const rawRms = calculateRMSVolume(inputData);
-        if (rawRms < ambientNoiseFloorRef.current * 1.8 || rawRms < 0.02) {
-          ambientNoiseFloorRef.current = 0.96 * ambientNoiseFloorRef.current + 0.04 * rawRms;
-        }
-        const noiseFloor = Math.max(0.005, Math.min(0.06, ambientNoiseFloorRef.current));
-        const dynamicSpeechThreshold = Math.max(0.014, noiseFloor * 2.2);
-
         // Check if AI is currently playing speech on speakers
         const isAiCurrentlySpeaking = isAiSpeakingRef.current || activeSourcesRef.current.length > 0;
+
+        // Asymmetric continuous ambient noise floor tracking (adapts to background fans and room hum)
+        const rawRms = calculateRMSVolume(inputData);
+        if (!lastSpeechStateRef.current && !isAiCurrentlySpeaking) {
+          if (rawRms < ambientNoiseFloorRef.current) {
+            // Fast adaptation downward when room becomes quieter
+            ambientNoiseFloorRef.current = 0.90 * ambientNoiseFloorRef.current + 0.10 * rawRms;
+          } else {
+            // Slow adaptation upward to track steady ambient sound (fans, air conditioning)
+            ambientNoiseFloorRef.current = 0.985 * ambientNoiseFloorRef.current + 0.015 * rawRms;
+          }
+        }
+        const noiseFloor = Math.max(0.006, Math.min(0.065, ambientNoiseFloorRef.current));
+        const dynamicSpeechThreshold = Math.max(0.018, noiseFloor * 2.2);
 
         // Downsample input chunk to 16kHz Float32Array for correlation analysis
         const mic16kRatio = sampleRate / 16000;
@@ -767,9 +798,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         }
 
         // 3. User Turn Phase: Immediate listening with debounced state & fast silence auto-commit
-        const isSpeech =
-          (analysis.isVoiceLike && rms >= dynamicSpeechThreshold) ||
-          rms >= dynamicSpeechThreshold * 1.35;
+        const isSpeech = analysis.isVoiceLike && rms >= dynamicSpeechThreshold;
 
         if (isSpeech) {
           speechStreakRef.current++;
@@ -813,10 +842,10 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
           }
 
           // Auto-commit silence trigger:
-          // If user was speaking in this turn and has been silent for 950ms, automatically submit turn!
+          // If user was speaking in this turn and has been silent for 1000ms, automatically submit turn!
           if (hasSpokenInTurnRef.current && phaseRef.current === 'user_turn' && speechHangoverFrames === 0) {
             const silenceMs = Date.now() - lastSpeechTimeRef.current;
-            if (silenceMs >= 950) {
+            if (silenceMs >= 1000) {
               hasSpokenInTurnRef.current = false;
               finishTurnManual();
               return;

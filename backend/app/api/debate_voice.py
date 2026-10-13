@@ -338,11 +338,8 @@ async def debate_live_websocket(
 
             async def commit_user_audio_turn():
                 nonlocal last_audio_time
-                if client_is_muted:
-                    current_turn_audio.clear()
-                    return
                 async with turn_lock:
-                    if len(current_turn_audio) < 12800:
+                    if len(current_turn_audio) < 4800:
                         current_turn_audio.clear()
                         await websocket.send_json({
                             "type": "state_change",
@@ -362,7 +359,7 @@ async def debate_live_websocket(
                         if sample_subset
                         else 0.0
                     )
-                    if turn_rms < 0.008:
+                    if turn_rms < 0.010:
                         logger.info(f"Discarding silent turn audio (RMS={turn_rms:.4f}, bytes={len(current_turn_audio)}).")
                         current_turn_audio.clear()
                         await websocket.send_json({
@@ -433,12 +430,9 @@ async def debate_live_websocket(
                             msg_type = data.get("type")
                             if msg_type == "mute_state":
                                 client_is_muted = bool(data.get("is_muted", False))
-                                if client_is_muted:
-                                    async with turn_lock:
-                                        current_turn_audio.clear()
+                                logger.debug(f"Client mute state updated: is_muted={client_is_muted}")
                             elif msg_type in ("turn_complete", "speech_end"):
-                                if not client_is_muted:
-                                    await commit_user_audio_turn()
+                                await commit_user_audio_turn()
                             elif msg_type == "text_turn" and data.get("text"):
                                 async with turn_lock:
                                     current_turn_audio.clear()
@@ -488,15 +482,15 @@ async def debate_live_websocket(
                 except Exception as e:
                     logger.warning(f"Error forwarding client audio: {e}")
 
-            # Task 2: Auto-commit turn if user finishes speaking and goes silent for 1.6s
+            # Task 2: Auto-commit turn if user finishes speaking and goes silent for 1.4s
             async def auto_commit_silence_watcher():
                 try:
                     while not session_ended.is_set():
                         await asyncio.sleep(0.2)
-                        if client_is_muted:
-                            continue
                         now = asyncio.get_event_loop().time()
-                        if len(current_turn_audio) >= 12800 and (now - last_audio_time) >= 1.6:
+                        async with turn_lock:
+                            audio_len = len(current_turn_audio)
+                        if audio_len >= 4800 and (now - last_audio_time) >= 1.4:
                             await commit_user_audio_turn()
                 except asyncio.CancelledError:
                     pass
