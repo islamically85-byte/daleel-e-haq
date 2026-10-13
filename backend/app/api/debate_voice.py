@@ -192,7 +192,8 @@ def handle_quran_lookup(args: Dict[str, Any]) -> Dict[str, Any]:
 def handle_hadith_lookup(args: Dict[str, Any]) -> Dict[str, Any]:
     """Queries local Hadith database, disclosing limitations if not installed."""
     query = args.get("query", "")
-    hits = search_hadith_fts(str(query), limit=3) if query else []
+    collection = args.get("collection")
+    hits = search_hadith_fts(str(query), limit=3, collection=collection) if query else []
     if hits:
         return {"status": "found", "hadiths": hits, "is_verified": True}
     return {
@@ -201,7 +202,7 @@ def handle_hadith_lookup(args: Dict[str, Any]) -> Dict[str, Any]:
         "is_verified": False,
         "limitation_disclosure": (
             "The approved local Daleel-e-Haq database currently contains the complete Holy Quran (6,236 verses). "
-            "The authenticated Hadith corpus is not yet installed in local storage. "
+            "The authenticated Hadith corpus is not yet installed in local storage for this query. "
             "Therefore, Hadith citations cannot be verified against offline records."
         )
     }
@@ -242,6 +243,26 @@ async def debate_live_websocket(
     if voice_name not in ["Kore", "Puck", "Aoede", "Charon"]:
         voice_name = "Puck"
 
+    is_feminine = voice_name in ["Kore", "Aoede"]
+    if is_feminine:
+        gender_directive = (
+            "\n\nVOICE IDENTITY & GENDER GRAMMATICAL AGREEMENT (FEMININE — Kore / Aoede):\n"
+            "You are speaking with an articulate female theological scholar voice persona (Kore / Aoede).\n"
+            "In Urdu and Hindi, you MUST consistently use first-person feminine grammatical forms and inflections for yourself:\n"
+            "- Verbs and Auxiliaries: Always use feminine verb forms: 'میں آپ کو سمجھاتی ہوں' (never سمجھاتا ہوں), 'میں اس کی وضاحت کروں گی' (never کروں گا), 'میں کہتی ہوں' (never کہتا ہوں), 'میں بتاتی ہوں', 'میں دیکھتی ہوں'۔\n"
+            "- Participles and Adjectives: Always match feminine singular agreement when speaking in the first person.\n"
+            "- CRITICAL SCRIPTURAL EXCEPTION: Never alter the gender, morphology, or wording of Quranic verses, Hadith texts, or historical quotations. Scripture must remain 100% verbatim in its authentic original text and standard translations."
+        )
+    else:
+        gender_directive = (
+            "\n\nVOICE IDENTITY & GENDER GRAMMATICAL AGREEMENT (MASCULINE — Puck / Charon):\n"
+            "You are speaking with an articulate male theological scholar voice persona (Puck / Charon).\n"
+            "In Urdu and Hindi, you MUST consistently use first-person masculine grammatical forms and inflections for yourself:\n"
+            "- Verbs and Auxiliaries: Always use masculine verb forms: 'میں آپ کو سمجھاتا ہوں' (never سمجھاتی ہوں), 'میں اس کی وضاحت کروں گا' (never کروں گی), 'میں کہتا ہوں' (never کہتی ہوں), 'میں بتاتا ہوں', 'میں دیکھتا ہوں'۔\n"
+            "- Participles and Adjectives: Always match masculine singular agreement when speaking in the first person.\n"
+            "- CRITICAL SCRIPTURAL EXCEPTION: Never alter the gender, morphology, or wording of Quranic verses, Hadith texts, or historical quotations. Scripture must remain 100% verbatim in its authentic original text and standard translations."
+        )
+
     urdu_directive = (
         "\n\nSTRICT URDU LANGUAGE REQUIREMENT:\n"
         "The user has selected Urdu. You MUST converse and respond EXCLUSIVELY in articulate, authentic Urdu (اردو زبان) in Urdu script. "
@@ -261,7 +282,7 @@ async def debate_live_websocket(
         "2. DO NOT routinely answer difficult questions with vague phrases such as 'I am neutral', 'I am not on anyone's side', or 'Everyone has their own opinion' when scriptural evidence addresses the claim. State a clear, reasoned, evidence-based conclusion. "
         "3. You have access to local database tools: ALWAYS call 'get_quran_evidence' to check and verify Quranic verses before asserting scripture. Cite Surah and Ayah numbers accurately and naturally (for example: 'Surah Al-Ikhlas, chapter 112, verse 1' or 'سورہ اخلاص، سورت نمبر 112، آیت نمبر 1'). "
         "4. Explain explicitly WHY the evidence supports, contradicts, or does not establish the claim. Respectfully correct the user when warranted by verified evidence. "
-        "5. If a Hadith claim is asserted or requested, call 'check_hadith_evidence'. Honestly disclose that Daleel-e-Haq's local database currently indexes the complete 6,236 verses of the Quran, while offline Hadith collections are not yet installed in local storage, so Hadith references cannot be marked as verified against offline records. "
+        "5. If a Hadith claim is asserted or requested, call 'check_hadith_evidence'. When authentic Hadith evidence is returned from the local database, cite the collection (e.g., Sahih al-Bukhari, Sahih Muslim), Hadith number, and narrator. If no match is found, honestly disclose that the citation cannot be verified against offline approved records. "
         "6. NEVER fabricate scripture, Hadith collections, chains of narration, or scholarly consensus. "
         "7. Never address the user as 'Korey', 'Corey', or any assumed name unless they explicitly introduced themselves by that name. "
         "8. Converse fluently across English, Urdu, Hindi, Roman Urdu, and Punjabi. When the user speaks Urdu, Hindi, or Punjabi, respond in articulate, natural Urdu (Urdu script) without filler repetition or foreign words. When the user speaks English, respond in articulate English. "
@@ -274,6 +295,7 @@ async def debate_live_websocket(
         "immediately focus on verse 1 of the Surah being discussed (e.g. Surah 112:1 - 'Say: He is Allah, the One' / قُلْ هُوَ اللَّهُ أَحَدٌ), "
         "call 'get_quran_evidence' to verify, and explain its theological meaning directly and concisely."
         + urdu_directive
+        + gender_directive
     )
 
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -489,19 +511,28 @@ async def debate_live_websocket(
                                             })
                                     elif fc.name == "check_hadith_evidence":
                                         result = handle_hadith_lookup(fc.args or {})
-                                        # Explicitly disclose Hadith unavailability
-                                        await websocket.send_json({
-                                            "type": "evidence_retrieved",
-                                            "source_type": "hadith_limitation",
-                                            "evidence": {
+                                        if result.get("hadiths"):
+                                            for h in result["hadiths"]:
+                                                await websocket.send_json({
+                                                    "type": "evidence_retrieved",
+                                                    "source_type": "hadith",
+                                                    "evidence": h,
+                                                    "is_verified": True
+                                                })
+                                        else:
+                                            # Explicitly disclose Hadith unavailability or unverified status
+                                            await websocket.send_json({
+                                                "type": "evidence_retrieved",
                                                 "source_type": "hadith_limitation",
-                                                "status": "unavailable",
-                                                "is_verified": False,
-                                                "title": "Offline Hadith Corpus Unavailable",
-                                                "limitation_disclosure": result.get("limitation_disclosure")
-                                            },
-                                            "is_verified": False
-                                        })
+                                                "evidence": {
+                                                    "source_type": "hadith_limitation",
+                                                    "status": "unavailable",
+                                                    "is_verified": False,
+                                                    "title": "Offline Hadith Corpus Unavailable",
+                                                    "limitation_disclosure": result.get("limitation_disclosure")
+                                                },
+                                                "is_verified": False
+                                            })
                                     else:
                                         result = {"error": f"Unknown tool: {fc.name}"}
 

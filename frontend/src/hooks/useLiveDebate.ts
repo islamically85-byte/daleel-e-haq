@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { downsampleAndConvertToPCM16, calculateRMSVolume } from '../services/audioUtils';
+import { downsampleAndConvertToPCM16, calculateRMSVolume, analyzeAudioFrame } from '../services/audioUtils';
 import { voicePreferences } from '../services/voicePreferences';
 import { api } from '../services/api';
 
@@ -41,6 +41,7 @@ interface UseLiveDebateOptions {
 }
 
 const STORAGE_TURNS_KEY = 'daleel_live_debate_turns';
+const ROLLING_INTERRUPTION_BUFFER_MAX = 55; // ~4.7s circular PCM16 buffer (at ~85ms/frame)
 
 export function useLiveDebate(options?: UseLiveDebateOptions) {
   const [isConnected, setIsConnected] = useState(false);
@@ -79,10 +80,16 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
 
   const ambientNoiseFloorRef = useRef<number>(0.008);
   const preRollBufferRef = useRef<ArrayBuffer[]>([]);
+  const rollingInterruptionBufferRef = useRef<ArrayBuffer[]>([]);
   const hasSpokenInTurnRef = useRef<boolean>(false);
   const lastSpeechTimeRef = useRef<number>(0);
-  const aiInterruptFrameCountRef = useRef<number>(0);
-  const interruptFramesBufferRef = useRef<ArrayBuffer[]>([]);
+  const sustainedAiSpeechMsRef = useRef<number>(0);
+  const interruptionSilenceMsRef = useRef<number>(0);
+  const speechStreakRef = useRef<number>(0);
+  const silenceStreakRef = useRef<number>(0);
+  const lastSpeechStateRef = useRef<boolean>(false);
+  const lastVolumeUpdateRef = useRef<number>(0);
+  const lastReportedVolumeRef = useRef<number>(0);
   const thinkingWatchdogTimerRef = useRef<any>(null);
 
   const clearWatchdog = useCallback(() => {
@@ -218,9 +225,13 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   const cleanupAudio = useCallback(() => {
     clearWatchdog();
     preRollBufferRef.current = [];
-    interruptFramesBufferRef.current = [];
+    rollingInterruptionBufferRef.current = [];
     hasSpokenInTurnRef.current = false;
-    aiInterruptFrameCountRef.current = 0;
+    sustainedAiSpeechMsRef.current = 0;
+    interruptionSilenceMsRef.current = 0;
+    speechStreakRef.current = 0;
+    silenceStreakRef.current = 0;
+    lastSpeechStateRef.current = false;
     stopAiPlayback();
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -287,13 +298,22 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     if (nextMuted) {
       setUserVolume(0);
       setIsUserSpeaking(false);
+      sustainedAiSpeechMsRef.current = 0;
+      interruptionSilenceMsRef.current = 0;
+      speechStreakRef.current = 0;
+      silenceStreakRef.current = 0;
+      lastSpeechStateRef.current = false;
     }
   }, []);
 
   const interrupt = useCallback((flushFrames?: ArrayBuffer[] | unknown) => {
     clearWatchdog();
     preRollBufferRef.current = [];
-    aiInterruptFrameCountRef.current = 0;
+    sustainedAiSpeechMsRef.current = 0;
+    interruptionSilenceMsRef.current = 0;
+    speechStreakRef.current = 0;
+    silenceStreakRef.current = 0;
+    lastSpeechStateRef.current = false;
     activeGenerationIdRef.current += 1;
     isServerTurnCompleteRef.current = true;
     stopAiPlayback();
@@ -328,6 +348,8 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     if (phaseRef.current === 'user_turn') {
       hasSpokenInTurnRef.current = false;
       preRollBufferRef.current = [];
+      sustainedAiSpeechMsRef.current = 0;
+      interruptionSilenceMsRef.current = 0;
       setPhaseSafe('thinking');
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'turn_complete' }));
@@ -348,10 +370,16 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     isServerTurnCompleteRef.current = true;
     ambientNoiseFloorRef.current = 0.008;
     preRollBufferRef.current = [];
-    interruptFramesBufferRef.current = [];
+    rollingInterruptionBufferRef.current = [];
     hasSpokenInTurnRef.current = false;
     lastSpeechTimeRef.current = 0;
-    aiInterruptFrameCountRef.current = 0;
+    sustainedAiSpeechMsRef.current = 0;
+    interruptionSilenceMsRef.current = 0;
+    speechStreakRef.current = 0;
+    silenceStreakRef.current = 0;
+    lastSpeechStateRef.current = false;
+    lastVolumeUpdateRef.current = 0;
+    lastReportedVolumeRef.current = 0;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setError('Microphone capture is not supported in this browser.');
@@ -603,55 +631,101 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
           setUserVolume(0);
           setIsUserSpeaking(false);
           preRollBufferRef.current = [];
+          rollingInterruptionBufferRef.current = [];
+          sustainedAiSpeechMsRef.current = 0;
+          interruptionSilenceMsRef.current = 0;
+          speechStreakRef.current = 0;
+          silenceStreakRef.current = 0;
+          lastSpeechStateRef.current = false;
           return;
         }
 
         const inputData = e.inputBuffer.getChannelData(0);
-        const rms = calculateRMSVolume(inputData);
-        setUserVolume(rms);
+        const sampleRate = audioCtx.sampleRate;
+        const frameDurationMs = (inputData.length / sampleRate) * 1000; // ~85.3ms
 
-        // Dynamically track ambient background noise floor during quiet periods
-        if (rms < ambientNoiseFloorRef.current * 1.8 || rms < 0.02) {
-          ambientNoiseFloorRef.current = 0.96 * ambientNoiseFloorRef.current + 0.04 * rms;
+        // Dynamic noise floor tracking during quiet intervals
+        const rawRms = calculateRMSVolume(inputData);
+        if (rawRms < ambientNoiseFloorRef.current * 1.8 || rawRms < 0.02) {
+          ambientNoiseFloorRef.current = 0.96 * ambientNoiseFloorRef.current + 0.04 * rawRms;
         }
         const noiseFloor = Math.max(0.005, Math.min(0.06, ambientNoiseFloorRef.current));
         const dynamicSpeechThreshold = Math.max(0.014, noiseFloor * 2.2);
 
-        // If AI is currently speaking on speakers, elevate threshold with echo factor
+        // Check if AI is currently playing speech on speakers
         const isAiCurrentlySpeaking = isAiSpeakingRef.current || activeSourcesRef.current.length > 0;
         const effectiveThreshold = isAiCurrentlySpeaking
           ? Math.max(dynamicSpeechThreshold * 1.85, aiVolumeRef.current * 0.22 + 0.028)
           : dynamicSpeechThreshold;
 
-        const isSpeech = rms >= effectiveThreshold;
-        setIsUserSpeaking(isSpeech);
+        // Perform comprehensive multi-feature acoustic analysis (ZCR, pitch autocorrelation, spectral diff)
+        const analysis = analyzeAudioFrame(inputData, sampleRate, noiseFloor, aiVolumeRef.current, isAiCurrentlySpeaking);
+        const rms = analysis.rms;
 
-        const pcmBuffer = downsampleAndConvertToPCM16(inputData, audioCtx.sampleRate, 16000);
+        // Throttled volume telemetry to eliminate React re-render stutter (updates at max ~12Hz or on large delta)
+        const now = performance.now();
+        if (now - lastVolumeUpdateRef.current >= 80 || Math.abs(rms - lastReportedVolumeRef.current) > 0.025) {
+          lastVolumeUpdateRef.current = now;
+          lastReportedVolumeRef.current = rms;
+          setUserVolume(rms);
+        }
 
-        // Barge-in interruption during AI speech
+        // Downsample input chunk to 16kHz PCM16
+        const pcmBuffer = downsampleAndConvertToPCM16(inputData, sampleRate, 16000);
+
+        // Maintain continuous rolling pre-interruption buffer of >= 4 seconds (~55 frames)
+        rollingInterruptionBufferRef.current.push(pcmBuffer);
+        if (rollingInterruptionBufferRef.current.length > ROLLING_INTERRUPTION_BUFFER_MAX) {
+          rollingInterruptionBufferRef.current.shift();
+        }
+
+        // 2. AI Speaking Phase: Sustained ~2.5s speech required to interrupt
         if (isAiCurrentlySpeaking) {
-          if (isSpeech) {
-            interruptFramesBufferRef.current.push(pcmBuffer);
-            aiInterruptFrameCountRef.current++;
-            // If user speaks intentionally for ~180ms (>= 2 frames), interrupt AI speech and flush candidate audio
-            if (aiInterruptFrameCountRef.current >= 2) {
-              const framesToFlush = [...interruptFramesBufferRef.current];
-              interruptFramesBufferRef.current = [];
-              aiInterruptFrameCountRef.current = 0;
+          const isInterruptionCandidate =
+            analysis.isIntentionalBargeIn ||
+            (analysis.isVoiceLike && rms >= effectiveThreshold);
+
+          if (isInterruptionCandidate) {
+            sustainedAiSpeechMsRef.current += frameDurationMs;
+            interruptionSilenceMsRef.current = 0;
+
+            // Confirm intentional interruption after ~2.5 seconds of sustained human speech
+            if (sustainedAiSpeechMsRef.current >= 2500) {
+              sustainedAiSpeechMsRef.current = 0;
+              interruptionSilenceMsRef.current = 0;
+              // Extract the complete buffered speech history (~3.5s, ~42 frames in chronological order)
+              const framesToFlush = [...rollingInterruptionBufferRef.current.slice(-42)];
               interrupt(framesToFlush);
             }
           } else {
-            aiInterruptFrameCountRef.current = 0;
-            interruptFramesBufferRef.current = [];
+            // Natural brief inter-syllable gaps (< 400ms) do NOT reset accumulated speech
+            interruptionSilenceMsRef.current += frameDurationMs;
+            if (interruptionSilenceMsRef.current >= 400) {
+              // Isolated click, fan burst, or throat clear without sustained speech
+              sustainedAiSpeechMsRef.current = 0;
+              interruptionSilenceMsRef.current = 0;
+            }
           }
           // Do not stream user mic audio while AI is actively speaking (prevents speaker echo)
           return;
         } else {
-          aiInterruptFrameCountRef.current = 0;
-          interruptFramesBufferRef.current = [];
+          sustainedAiSpeechMsRef.current = 0;
+          interruptionSilenceMsRef.current = 0;
         }
 
+        // 3. User Turn Phase: Immediate listening with debounced state & fast silence auto-commit
+        const isSpeech =
+          (analysis.isVoiceLike && rms >= dynamicSpeechThreshold) ||
+          rms >= dynamicSpeechThreshold * 1.35;
+
         if (isSpeech) {
+          speechStreakRef.current++;
+          silenceStreakRef.current = 0;
+          if (speechStreakRef.current >= 2 && !lastSpeechStateRef.current) {
+            lastSpeechStateRef.current = true;
+            setIsUserSpeaking(true);
+          }
+
           speechHangoverFrames = 4; // ~350ms hangover to preserve natural word endings
           lastSpeechTimeRef.current = Date.now();
 
@@ -668,6 +742,13 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
             }
           }
         } else {
+          silenceStreakRef.current++;
+          speechStreakRef.current = 0;
+          if (silenceStreakRef.current >= 5 && lastSpeechStateRef.current) {
+            lastSpeechStateRef.current = false;
+            setIsUserSpeaking(false);
+          }
+
           if (speechHangoverFrames > 0) {
             speechHangoverFrames--;
           }

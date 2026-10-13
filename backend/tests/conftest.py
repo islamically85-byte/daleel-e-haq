@@ -17,6 +17,13 @@ def setup_test_db():
 
     # Copy canonical db to test db so Quran/Hadith records are present
     if os.path.exists(original_db):
+        try:
+            import sqlite3
+            tmp_conn = sqlite3.connect(original_db)
+            tmp_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            tmp_conn.close()
+        except Exception:
+            pass
         shutil.copy2(original_db, test_db)
 
     yield

@@ -105,16 +105,27 @@ def search_quran_fts(query: str, limit: int = 10, conn: sqlite3.Connection = Non
     return results
 
 
-def search_hadith_fts(query: str, limit: int = 5, conn: sqlite3.Connection = None) -> List[Dict[str, Any]]:
+STOP_WORDS = {"on", "in", "the", "of", "to", "for", "with", "a", "an", "is", "and", "or", "by", "at", "from"}
+
+
+def search_hadith_fts(
+    query: str,
+    limit: int = 5,
+    conn: sqlite3.Connection = None,
+    collection: Optional[str] = None
+) -> List[Dict[str, Any]]:
     clean_query = re.sub(r'["\';\-\(\)]', ' ', query).strip()
     if not clean_query:
         return []
 
-    words = [w for w in clean_query.split() if len(w) > 1]
-    if not words:
+    raw_words = [w for w in clean_query.split() if len(w) > 1]
+    if not raw_words:
         return []
 
-    match_expr = " OR ".join([f'"{w}"*' for w in words[:6]])
+    meaningful_words = [w for w in raw_words if w.lower() not in STOP_WORDS]
+    words = meaningful_words if meaningful_words else raw_words
+
+    match_expr = " AND ".join([f'"{w}"*' for w in words[:6]])
 
     close_after = False
     if conn is None:
@@ -123,17 +134,30 @@ def search_hadith_fts(query: str, limit: int = 5, conn: sqlite3.Connection = Non
 
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            SELECT 
-                h.id, h.collection, h.hadith_number, h.book_name, h.chapter_name,
-                h.text_ar, h.translation_en, h.translation_ur, h.narrator,
-                h.grade, h.graded_by, h.review_status, rank
-            FROM hadith_fts f
-            JOIN hadith_records h ON f.hadith_id = h.id
-            WHERE hadith_fts MATCH ? AND h.review_status = 'approved'
-            ORDER BY rank
-            LIMIT ?;
-        """, (match_expr, limit))
+        if collection:
+            cursor.execute("""
+                SELECT 
+                    h.id, h.collection, h.hadith_number, h.book_name, h.chapter_name,
+                    h.text_ar, h.translation_en, h.translation_ur, h.narrator,
+                    h.grade, h.graded_by, h.review_status, rank
+                FROM hadith_fts f
+                JOIN hadith_records h ON f.hadith_id = h.id
+                WHERE hadith_fts MATCH ? AND h.review_status = 'approved' AND (h.collection LIKE ? OR h.collection_slug LIKE ?)
+                ORDER BY rank
+                LIMIT ?;
+            """, (match_expr, f"%{collection}%", f"%{collection}%", limit))
+        else:
+            cursor.execute("""
+                SELECT 
+                    h.id, h.collection, h.hadith_number, h.book_name, h.chapter_name,
+                    h.text_ar, h.translation_en, h.translation_ur, h.narrator,
+                    h.grade, h.graded_by, h.review_status, rank
+                FROM hadith_fts f
+                JOIN hadith_records h ON f.hadith_id = h.id
+                WHERE hadith_fts MATCH ? AND h.review_status = 'approved'
+                ORDER BY rank
+                LIMIT ?;
+            """, (match_expr, limit))
         rows = cursor.fetchall()
         results = [dict(r) for r in rows]
     except Exception:

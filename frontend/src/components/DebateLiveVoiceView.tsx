@@ -128,21 +128,12 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
             : 'Speak naturally anytime to interrupt, or tap Stop AI'
         };
       case 'user_turn':
-        if (isUserSpeaking) {
-          return {
-            badge: isUrdu ? 'آپ کی بات سنی جا رہی ہے...' : 'Listening...',
-            badgeColor: '#3B82F6',
-            instruction: isUrdu
-              ? 'اطمینان سے گفتگو فرمائیں؛ دلیلِ حق سن رہا ہے'
-              : 'Speaking detected. Speak freely; Daleel-e-Haq is listening.'
-          };
-        }
         return {
           badge: isUrdu ? 'سن رہا ہے (Listening)' : 'Listening',
           badgeColor: '#3B82F6',
-          instruction: isUrdu
-            ? 'مائیکروفون آن ہے۔ اپنا علمی دعویٰ، سوال یا اعتراض بولیں۔'
-            : 'Microphone active. Speak your theological claim or objection.'
+          instruction: isUserSpeaking
+            ? (isUrdu ? 'آپ کی گفتگو موصول ہو رہی ہے؛ اطمینان سے بات جاری رکھیں...' : 'Listening to your voice... Daleel-e-Haq is attentive.')
+            : (isUrdu ? 'مائیکروفون آن ہے۔ اپنا علمی دعویٰ، سوال یا اعتراض بولیں۔' : 'Microphone active. Speak your theological claim or objection.')
         };
       default:
         return {
