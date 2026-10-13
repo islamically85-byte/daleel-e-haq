@@ -82,6 +82,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   const hasSpokenInTurnRef = useRef<boolean>(false);
   const lastSpeechTimeRef = useRef<number>(0);
   const aiInterruptFrameCountRef = useRef<number>(0);
+  const interruptFramesBufferRef = useRef<ArrayBuffer[]>([]);
   const thinkingWatchdogTimerRef = useRef<any>(null);
 
   const clearWatchdog = useCallback(() => {
@@ -217,6 +218,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
   const cleanupAudio = useCallback(() => {
     clearWatchdog();
     preRollBufferRef.current = [];
+    interruptFramesBufferRef.current = [];
     hasSpokenInTurnRef.current = false;
     aiInterruptFrameCountRef.current = 0;
     stopAiPlayback();
@@ -288,10 +290,9 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     }
   }, []);
 
-  const interrupt = useCallback(() => {
+  const interrupt = useCallback((flushFrames?: ArrayBuffer[] | unknown) => {
     clearWatchdog();
     preRollBufferRef.current = [];
-    hasSpokenInTurnRef.current = false;
     aiInterruptFrameCountRef.current = 0;
     activeGenerationIdRef.current += 1;
     isServerTurnCompleteRef.current = true;
@@ -304,6 +305,22 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
           generation_id: activeGenerationIdRef.current
         }));
       } catch {}
+
+      // If speech frames accompanied this interruption (barge-in voice), preserve and stream them immediately
+      const framesToFlush = Array.isArray(flushFrames) ? (flushFrames as ArrayBuffer[]) : undefined;
+      if (framesToFlush && framesToFlush.length > 0) {
+        hasSpokenInTurnRef.current = true;
+        lastSpeechTimeRef.current = Date.now();
+        for (const frame of framesToFlush) {
+          try {
+            wsRef.current.send(frame);
+          } catch {}
+        }
+      } else {
+        hasSpokenInTurnRef.current = false;
+      }
+    } else {
+      hasSpokenInTurnRef.current = false;
     }
   }, [stopAiPlayback, setPhaseSafe, clearWatchdog]);
 
@@ -331,6 +348,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     isServerTurnCompleteRef.current = true;
     ambientNoiseFloorRef.current = 0.008;
     preRollBufferRef.current = [];
+    interruptFramesBufferRef.current = [];
     hasSpokenInTurnRef.current = false;
     lastSpeechTimeRef.current = 0;
     aiInterruptFrameCountRef.current = 0;
@@ -613,19 +631,24 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
         // Barge-in interruption during AI speech
         if (isAiCurrentlySpeaking) {
           if (isSpeech) {
+            interruptFramesBufferRef.current.push(pcmBuffer);
             aiInterruptFrameCountRef.current++;
-            // If user speaks intentionally for ~180ms (> 2 frames), interrupt AI speech
+            // If user speaks intentionally for ~180ms (>= 2 frames), interrupt AI speech and flush candidate audio
             if (aiInterruptFrameCountRef.current >= 2) {
+              const framesToFlush = [...interruptFramesBufferRef.current];
+              interruptFramesBufferRef.current = [];
               aiInterruptFrameCountRef.current = 0;
-              interrupt();
+              interrupt(framesToFlush);
             }
           } else {
             aiInterruptFrameCountRef.current = 0;
+            interruptFramesBufferRef.current = [];
           }
           // Do not stream user mic audio while AI is actively speaking (prevents speaker echo)
           return;
         } else {
           aiInterruptFrameCountRef.current = 0;
+          interruptFramesBufferRef.current = [];
         }
 
         if (isSpeech) {
@@ -656,10 +679,10 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
           }
 
           // Auto-commit silence trigger:
-          // If user was speaking in this turn and has been silent for 1.25s, automatically submit turn!
+          // If user was speaking in this turn and has been silent for 950ms, automatically submit turn!
           if (hasSpokenInTurnRef.current && phaseRef.current === 'user_turn' && speechHangoverFrames === 0) {
             const silenceMs = Date.now() - lastSpeechTimeRef.current;
-            if (silenceMs >= 1250) {
+            if (silenceMs >= 950) {
               hasSpokenInTurnRef.current = false;
               finishTurnManual();
               return;

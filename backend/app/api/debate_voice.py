@@ -318,6 +318,11 @@ async def debate_live_websocket(
                 async with turn_lock:
                     if len(current_turn_audio) < 3200:
                         current_turn_audio.clear()
+                        await websocket.send_json({
+                            "type": "state_change",
+                            "state": "user_turn",
+                            "generation_id": active_generation_id
+                        })
                         return
                     audio_bytes = bytes(current_turn_audio)
                     current_turn_audio.clear()
