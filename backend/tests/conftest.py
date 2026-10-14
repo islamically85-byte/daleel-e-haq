@@ -25,6 +25,9 @@ def setup_test_db():
         except Exception:
             pass
         shutil.copy2(original_db, test_db)
+    else:
+        from app.db.init_db import initialize_database
+        initialize_database()
 
     yield
 

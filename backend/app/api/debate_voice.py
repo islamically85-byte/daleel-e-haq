@@ -335,10 +335,16 @@ async def debate_live_websocket(
             current_turn_audio = bytearray()
             last_audio_time = asyncio.get_event_loop().time()
             turn_lock = asyncio.Lock()
+            # Server turn state: "listening" (accumulating user audio), "thinking" (Gemini generating), "speaking" (model stream active)
+            server_turn_state = "listening"
 
             async def commit_user_audio_turn():
-                nonlocal last_audio_time
+                nonlocal last_audio_time, server_turn_state
                 async with turn_lock:
+                    if server_turn_state != "listening":
+                        logger.debug(f"Ignoring commit_user_audio_turn while server_turn_state is {server_turn_state}")
+                        return
+
                     if len(current_turn_audio) < 4800:
                         current_turn_audio.clear()
                         await websocket.send_json({
@@ -371,6 +377,7 @@ async def debate_live_websocket(
 
                     audio_bytes = bytes(current_turn_audio)
                     current_turn_audio.clear()
+                    server_turn_state = "thinking"
                     try:
                         await websocket.send_json({
                             "type": "state_change",
@@ -387,6 +394,7 @@ async def debate_live_websocket(
                         )
                     except asyncio.TimeoutError:
                         logger.warning("Turn submission to Gemini Live timed out after 20s.")
+                        server_turn_state = "listening"
                         await websocket.send_json({
                             "type": "error",
                             "message": "Response took longer than expected. Please speak again."
@@ -398,6 +406,7 @@ async def debate_live_websocket(
                         })
                     except Exception as ex:
                         logger.warning(f"Error committing user audio turn: {ex}")
+                        server_turn_state = "listening"
                         await websocket.send_json({
                             "type": "state_change",
                             "state": "user_turn",
@@ -406,13 +415,13 @@ async def debate_live_websocket(
 
             # Task 1: Forward client audio chunks and control signals to Gemini (Turn-Based PCM Model)
             async def forward_client_audio():
-                nonlocal client_is_muted, active_generation_id, last_audio_time
+                nonlocal client_is_muted, active_generation_id, last_audio_time, server_turn_state
                 try:
                     while True:
                         msg = await websocket.receive()
                         if "bytes" in msg and msg["bytes"]:
-                            # Reject microphone frames server-side while session is muted
-                            if client_is_muted:
+                            # Reject microphone frames server-side while session is muted or AI is thinking/speaking
+                            if client_is_muted or server_turn_state != "listening":
                                 continue
                             audio_bytes = msg["bytes"]
                             # Cap per-frame payload size (QA-24)
@@ -433,9 +442,19 @@ async def debate_live_websocket(
                                 logger.debug(f"Client mute state updated: is_muted={client_is_muted}")
                             elif msg_type in ("turn_complete", "speech_end"):
                                 await commit_user_audio_turn()
+                            elif msg_type == "discard_turn":
+                                async with turn_lock:
+                                    current_turn_audio.clear()
+                                logger.debug("Discarded turn audio per client request.")
+                            elif msg_type == "listening_resume":
+                                async with turn_lock:
+                                    current_turn_audio.clear()
+                                server_turn_state = "listening"
+                                logger.debug("Client notified listening resumed; server ready for user turn.")
                             elif msg_type == "text_turn" and data.get("text"):
                                 async with turn_lock:
                                     current_turn_audio.clear()
+                                server_turn_state = "thinking"
                                 try:
                                     await websocket.send_json({
                                         "type": "state_change",
@@ -448,6 +467,7 @@ async def debate_live_websocket(
                                     )
                                 except Exception as ex:
                                     logger.warning(f"Error sending text turn: {ex}")
+                                    server_turn_state = "listening"
                             elif msg_type == "interrupt":
                                 client_gen = data.get("generation_id")
                                 if client_gen and isinstance(client_gen, int) and client_gen > active_generation_id:
@@ -457,6 +477,7 @@ async def debate_live_websocket(
                                 logger.info(f"User interrupted live speech. Active generation: {active_generation_id}")
                                 async with turn_lock:
                                     current_turn_audio.clear()
+                                server_turn_state = "listening"
                                 try:
                                     await gemini_session.send_realtime_input(audio_stream_end=True)
                                 except Exception as ex:
@@ -490,14 +511,14 @@ async def debate_live_websocket(
                         now = asyncio.get_event_loop().time()
                         async with turn_lock:
                             audio_len = len(current_turn_audio)
-                        if audio_len >= 4800 and (now - last_audio_time) >= 1.4:
+                        if server_turn_state == "listening" and audio_len >= 4800 and (now - last_audio_time) >= 1.4:
                             await commit_user_audio_turn()
                 except asyncio.CancelledError:
                     pass
 
             # Task 3: Receive Gemini audio parts, tool calls, captions, and turn events continuously
             async def forward_gemini_responses():
-                nonlocal active_generation_id
+                nonlocal active_generation_id, server_turn_state
                 try:
                     while not session_ended.is_set():
                         async for response in gemini_session.receive():
@@ -572,6 +593,9 @@ async def debate_live_websocket(
                             # 2. Interruption detection from provider
                             if sc.interrupted:
                                 active_generation_id += 1
+                                server_turn_state = "listening"
+                                async with turn_lock:
+                                    current_turn_audio.clear()
                                 await websocket.send_json({
                                     "type": "interrupted",
                                     "generation_id": active_generation_id
@@ -613,6 +637,7 @@ async def debate_live_websocket(
                                         if active_generation_id != current_gen:
                                             logger.info("Discarded stale audio chunk from interrupted generation.")
                                             break
+                                        server_turn_state = "speaking"
                                         await websocket.send_json({
                                             "type": "state_change",
                                             "state": "assistant_speaking",
@@ -628,6 +653,8 @@ async def debate_live_websocket(
 
                             # 6. Turn completion
                             if sc.turn_complete:
+                                # Note: Server stays in 'speaking' or 'thinking' until client drains audio or sends listening_resume,
+                                # preventing mic bleed from entering next turn while speakers are finishing.
                                 await websocket.send_json({
                                     "type": "turn_complete",
                                     "generation_id": active_generation_id
