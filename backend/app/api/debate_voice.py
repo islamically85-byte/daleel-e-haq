@@ -593,6 +593,7 @@ async def debate_live_websocket(
                             # 2. Interruption detection from provider
                             if sc.interrupted:
                                 active_generation_id += 1
+                                current_gen = active_generation_id
                                 server_turn_state = "listening"
                                 async with turn_lock:
                                     current_turn_audio.clear()
@@ -605,6 +606,7 @@ async def debate_live_websocket(
                                     "state": "user_turn",
                                     "generation_id": active_generation_id
                                 })
+                                continue
 
                             # 3. Live input speech captions (user's speech)
                             if sc.interim_input_transcription and sc.interim_input_transcription.text:
@@ -620,13 +622,14 @@ async def debate_live_websocket(
                                     "is_final": True
                                 })
 
-                            # 4. Live output captions (AI spoken words)
+                            # 4. Live output captions (AI spoken words) - gated by active_generation_id
                             if sc.output_transcription and sc.output_transcription.text:
-                                await websocket.send_json({
-                                    "type": "output_caption",
-                                    "text": sc.output_transcription.text,
-                                    "generation_id": active_generation_id
-                                })
+                                if active_generation_id == current_gen:
+                                    await websocket.send_json({
+                                        "type": "output_caption",
+                                        "text": sc.output_transcription.text,
+                                        "generation_id": active_generation_id
+                                    })
 
                             # 5. Spoken Audio Chunks (24kHz PCM) with generation ID gating
                             if sc.model_turn and sc.model_turn.parts:

@@ -371,7 +371,10 @@ export class VoiceSession {
         if (!stale) this.dispatch({ type: 'provider_turn_complete', generation: gen ?? this.state.generation });
         break;
       case 'interrupted':
-        if (gen !== undefined) this.dispatch({ type: 'server_generation', generation: gen });
+        if (gen !== undefined) {
+          this.playback?.clear();
+          this.dispatch({ type: 'server_generation', generation: gen });
+        }
         break;
       case 'output_caption':
         if (!stale) this.opts.callbacks.onServerMessage(data);
