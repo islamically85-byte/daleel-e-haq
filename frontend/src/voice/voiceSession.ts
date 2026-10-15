@@ -1,4 +1,5 @@
 import { downsampleAndConvertToPCM16 } from '../services/audioUtils';
+import { BrowserSpeechRecognizer } from './speechRecognitionService';
 import { PlaybackQueue, decodePcm16Base64, type PlaybackContextLike } from './playbackQueue';
 import { SessionResources } from './sessionResources';
 import { SpeechEndpointer, extractFrameFeatures, type EndpointerConfig } from './speechEndpointer';
@@ -70,6 +71,7 @@ export interface VoiceCallbacks {
 
 export interface VoiceSessionOptions {
   url: string;
+  language?: string;
   env: VoiceEnv;
   callbacks: VoiceCallbacks;
   endpointer?: Partial<EndpointerConfig>;
@@ -93,6 +95,8 @@ export class VoiceSession {
   private audio: AudioHandle | null = null;
   private playback: PlaybackQueue | null = null;
   private ws: SocketLike | null = null;
+  private speechRec: BrowserSpeechRecognizer | null = null;
+  private lastTranscribedText = '';
   private preRoll: ArrayBuffer[] = [];
   private holdoffUntil = 0;
   private userSpeaking = false;
@@ -135,7 +139,8 @@ export class VoiceSession {
       isAISpeaking: s.phase === 'speaking',
       micOpen: isMicOpen(s) && this.opts.env.now() >= this.holdoffUntil,
       userVolume: this.userVolume,
-      canRespondNow: s.phase === 'listening' && this.endpointer.hasValidUtterance,
+      canRespondNow:
+        s.phase === 'listening' && (this.endpointer.hasValidUtterance || Boolean(this.lastTranscribedText.trim())),
       generation: s.generation
     };
   }
@@ -178,6 +183,41 @@ export class VoiceSession {
     this.res.add(() => playback.clear());
     this.dispatch({ type: 'mic_ready' });
 
+    if (BrowserSpeechRecognizer.isSupported()) {
+      this.speechRec = new BrowserSpeechRecognizer(this.opts.language || 'auto', {
+        onInterimText: (text) => {
+          if (this.res.isDisposed || this.state.phase !== 'listening') return;
+          this.lastTranscribedText = text;
+          this.userSpeaking = true;
+          this.opts.callbacks.onServerMessage({
+            type: 'input_caption',
+            text,
+            is_final: false
+          });
+          this.emit();
+        },
+        onFinalText: (text) => {
+          if (this.res.isDisposed || this.state.phase !== 'listening') return;
+          this.lastTranscribedText = text;
+          this.opts.callbacks.onServerMessage({
+            type: 'input_caption',
+            text,
+            is_final: true
+          });
+        },
+        onSpeechEnd: (text) => {
+          if (this.res.isDisposed || this.state.phase !== 'listening') return;
+          const trimmed = text.trim();
+          if (trimmed) {
+            this.sendText(trimmed);
+            this.lastTranscribedText = '';
+          }
+        }
+      });
+      this.res.add(() => this.speechRec?.stop());
+      this.speechRec.start();
+    }
+
     const ws = this.opts.env.openSocket(this.opts.url);
     this.ws = ws;
     this.res.add(() => {
@@ -205,6 +245,8 @@ export class VoiceSession {
   /** User-initiated or fatal end. Idempotent; releases mic, audio, socket and timers. */
   end(): void {
     if (this.res.isDisposed) return;
+    this.speechRec?.stop();
+    this.lastTranscribedText = '';
     this.sendJson({ type: 'end' });
     this.dispatch({ type: 'session_end' });
     this.userSpeaking = false;
@@ -228,8 +270,12 @@ export class VoiceSession {
     this.audio?.setMicEnabled(!muted);
     this.sendJson({ type: 'mute_state', is_muted: muted });
     if (muted) {
-      // A fully captured utterance is kept and answered; a partial / noise fragment is dropped.
-      if (this.state.phase === 'listening' && this.endpointer.hasValidUtterance) {
+      this.speechRec?.stop();
+      const recognized = (this.speechRec?.stop() || this.lastTranscribedText).trim();
+      if (recognized) {
+        this.sendText(recognized);
+        this.lastTranscribedText = '';
+      } else if (this.state.phase === 'listening' && this.endpointer.hasValidUtterance) {
         this.submitTurn(this.endpointer.utteranceVoicedMs);
       } else if (this.endpointer.inSpeech) {
         this.sendJson({ type: 'discard_turn' });
@@ -238,6 +284,7 @@ export class VoiceSession {
     } else {
       this.resetCapture();
       this.holdoffUntil = this.opts.env.now() + 200;
+      this.speechRec?.start();
     }
     this.userVolume = 0;
     this.emit();
@@ -245,13 +292,23 @@ export class VoiceSession {
 
   /** "Respond now": only valid when a real utterance has been captured. */
   respondNow(): void {
-    if (this.state.phase !== 'listening' || !this.endpointer.hasValidUtterance) return;
-    this.submitTurn(this.endpointer.utteranceVoicedMs);
+    if (this.state.phase !== 'listening') return;
+    const recognized = (this.speechRec?.stop() || this.lastTranscribedText).trim();
+    if (recognized) {
+      this.sendText(recognized);
+      this.lastTranscribedText = '';
+      return;
+    }
+    if (this.endpointer.hasValidUtterance) {
+      this.submitTurn(this.endpointer.utteranceVoicedMs);
+    }
   }
 
   sendText(text: string): boolean {
     const trimmed = text.trim();
     if (!trimmed || this.state.phase !== 'listening') return false;
+    this.speechRec?.reset();
+    this.lastTranscribedText = '';
     this.resetCapture();
     this.sendJson({ type: 'text_turn', text: trimmed });
     this.dispatch({ type: 'utterance_submitted' });
@@ -265,9 +322,12 @@ export class VoiceSession {
   interrupt(): void {
     if (this.res.isDisposed) return;
     if (this.state.phase !== 'processing' && this.state.phase !== 'speaking') return;
+    this.speechRec?.reset();
+    this.lastTranscribedText = '';
     this.sendJson({ type: 'interrupt', generation_id: this.state.generation + 1 });
     this.playback?.clear();
     this.dispatch({ type: 'user_interrupt' });
+    this.speechRec?.start();
   }
 
   // ---------------------------------------------------------------- microphone path
@@ -321,6 +381,12 @@ export class VoiceSession {
 
   private submitTurn(voicedMs: number): void {
     if (this.state.phase !== 'listening') return;
+    const recognized = (this.speechRec?.stop() || this.lastTranscribedText).trim();
+    if (recognized) {
+      this.sendText(recognized);
+      this.lastTranscribedText = '';
+      return;
+    }
     this.sendJson({ type: 'turn_complete', voiced_ms: Math.round(voicedMs) });
     this.resetCapture();
     this.dispatch({ type: 'utterance_submitted' });
@@ -406,12 +472,18 @@ export class VoiceSession {
     if (reopenedAfterReply(prev, this.state)) {
       this.holdoffUntil = this.opts.env.now() + REOPEN_HOLDOFF_MS;
       this.resetCapture();
+      this.lastTranscribedText = '';
+      this.speechRec?.start();
       this.sendJson({ type: 'listening_resume' });
     }
     if (this.state.phase === 'processing' || this.state.phase === 'speaking') {
+      this.speechRec?.stop();
       if (prev.phase !== this.state.phase) this.armWatchdog();
     } else {
       this.clearWatchdog();
+      if (this.state.phase === 'listening' && !this.state.muted) {
+        this.speechRec?.start();
+      }
     }
     this.emit();
   }

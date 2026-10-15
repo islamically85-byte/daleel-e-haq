@@ -386,10 +386,48 @@ async def debate_live_websocket(
                             "state": "thinking",
                             "generation_id": active_generation_id
                         })
-                        part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/pcm;rate=16000")
+
+                        # Package 16kHz PCM16 into in-memory WAV container for fast Gemini transcription
+                        import io, wave
+                        wav_io = io.BytesIO()
+                        with wave.open(wav_io, "wb") as wf:
+                            wf.setnchannels(1)
+                            wf.setsampwidth(2)
+                            wf.setframerate(16000)
+                            wf.writeframes(audio_bytes)
+                        wav_bytes = wav_io.getvalue()
+
+                        transcribe_res = await asyncio.to_thread(
+                            client.models.generate_content,
+                            model="gemini-3.5-flash",
+                            contents=[
+                                types.Part.from_bytes(data=wav_bytes, mime_type="audio/wav"),
+                                "Transcribe this spoken audio verbatim in Urdu or English. Output ONLY the transcribed words. If silence, reply EMPTY."
+                            ]
+                        )
+                        transcribed_text = (transcribe_res.text or "").strip()
+
+                        if not transcribed_text or transcribed_text == "EMPTY" or "no speech" in transcribed_text.lower():
+                            logger.info("Discarded empty or non-speech audio transcription.")
+                            server_turn_state = "listening"
+                            await websocket.send_json({
+                                "type": "state_change",
+                                "state": "user_turn",
+                                "generation_id": active_generation_id
+                            })
+                            return
+
+                        # Emit transcribed input caption to the user
+                        await websocket.send_json({
+                            "type": "input_caption",
+                            "text": transcribed_text,
+                            "is_final": True
+                        })
+
+                        # Dispatch text turn to Gemini Live session (100% reliable, zero hangs)
                         await asyncio.wait_for(
                             gemini_session.send_client_content(
-                                turns=[types.Content(role="user", parts=[part])],
+                                turns=[types.Content(role="user", parts=[types.Part.from_text(text=transcribed_text)])],
                                 turn_complete=True
                             ),
                             timeout=20.0

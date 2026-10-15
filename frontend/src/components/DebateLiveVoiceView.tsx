@@ -31,6 +31,9 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
   const [selectedVoice, setSelectedVoice] = useState<'Kore' | 'Puck' | 'Aoede' | 'Charon'>(
     () => voicePreferences.getSelectedVoice()
   );
+  const [selectedLang, setSelectedLang] = useState<'auto' | 'ur' | 'en'>(
+    () => (language === 'ur' ? 'ur' : 'auto')
+  );
   const [isEvidenceDrawerOpen, setIsEvidenceDrawerOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [customApiKey, setCustomApiKey] = useState(
@@ -93,7 +96,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
   };
 
   const handleStart = () => {
-    startSession(selectedVoice, language === 'ur' ? 'ur' : 'auto');
+    startSession(selectedVoice, selectedLang);
   };
 
   const handleVoiceChange = (v: 'Kore' | 'Puck' | 'Aoede' | 'Charon') => {
@@ -258,6 +261,32 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               }}
             >
               {v}
+            </button>
+          ))}
+
+          {/* Language Selection Pills */}
+          <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', marginLeft: '0.4rem', marginRight: '0.15rem' }}>
+            {isUrdu ? 'زبان:' : 'Lang:'}
+          </span>
+          {(['auto', 'ur', 'en'] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              disabled={isConnected}
+              onClick={() => setSelectedLang(l)}
+              className="btn btn-ghost"
+              style={{
+                padding: '0.2rem 0.55rem',
+                minHeight: '26px',
+                fontSize: '0.72rem',
+                borderRadius: '10px',
+                backgroundColor: selectedLang === l ? 'rgba(18, 168, 134, 0.15)' : 'transparent',
+                color: selectedLang === l ? 'var(--emerald-primary)' : 'var(--text-secondary)',
+                border: selectedLang === l ? '1px solid rgba(18, 168, 134, 0.35)' : '1px solid transparent',
+                fontWeight: selectedLang === l ? 600 : 400
+              }}
+            >
+              {l === 'auto' ? (isUrdu ? 'خودکار' : 'Auto') : l === 'ur' ? 'اردو' : 'English'}
             </button>
           ))}
 

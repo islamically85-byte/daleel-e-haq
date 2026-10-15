@@ -186,6 +186,7 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
 
       const session: VoiceSession = new VoiceSession({
         url,
+        language: selectedLang,
         env: browserEnv,
         callbacks: {
           // Callbacks from a superseded session are ignored.

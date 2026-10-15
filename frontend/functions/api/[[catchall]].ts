@@ -8,7 +8,7 @@ interface Env {
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
-  const backendBase = context.env.BACKEND_URL || 'http://127.0.0.1:8000';
+  const backendBase = context.env.BACKEND_URL || 'https://daleel-e-haq-production.up.railway.app';
   const url = new URL(context.request.url);
   const targetUrl = new URL(url.pathname + url.search, backendBase);
 
