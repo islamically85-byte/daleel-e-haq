@@ -59,3 +59,6 @@ frontend/.vite/
 Thumbs.db
 .vscode/
 .idea/
+.wrangler/
+frontend/.wrangler/
+data/backups/
