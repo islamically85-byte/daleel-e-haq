@@ -1,0 +1,17 @@
+# Railway / Docker ignore
+.git
+.gitignore
+frontend/node_modules
+frontend/dist
+data/local/
+data/backups/
+data/cache/
+data/audio_previews/
+data/imports/
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+.wrangler
+.env
+*.env.local
+*.env.*.local
