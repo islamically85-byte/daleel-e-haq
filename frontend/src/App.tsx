@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import type { NavTab } from './components/Navigation';
 import { AskPage } from './pages/AskPage';
 import { DebatePage } from './pages/DebatePage';
@@ -175,6 +176,7 @@ export function App() {
         />
 
         <main
+          className="app-main"
           style={{
             flex: 1,
             minWidth: 0,
@@ -218,6 +220,17 @@ export function App() {
           {activeTab === 'settings' && <SettingsPage language={language} />}
         </main>
       </div>
+
+      {/* Mobile-First Thumb Navigation Bar */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          setIsSidebarCollapsed(true);
+        }}
+        language={language}
+        isLiveVoiceActive={activeTab === 'debate'}
+      />
     </div>
   );
 }

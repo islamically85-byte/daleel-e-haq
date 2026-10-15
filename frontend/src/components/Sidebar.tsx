@@ -51,12 +51,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'settings' as NavTab, labelEn: 'System Settings', labelUr: 'ترتیبات و ماڈل', icon: Settings },
   ];
 
+  const handleTabClick = (tabId: NavTab) => {
+    onTabChange(tabId);
+    if (window.innerWidth <= 768 && !isCollapsed) {
+      onToggleCollapse();
+    }
+  };
+
+  const handleConversationClick = (id: string) => {
+    onSelectConversation(id);
+    if (window.innerWidth <= 768 && !isCollapsed) {
+      onToggleCollapse();
+    }
+  };
+
+  const handleNewTopicClick = () => {
+    onNewConversation();
+    if (window.innerWidth <= 768 && !isCollapsed) {
+      onToggleCollapse();
+    }
+  };
+
   return (
-    <aside
-      style={{
-        width: isCollapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)',
-        minWidth: isCollapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)',
-        backgroundColor: 'var(--bg-sidebar)',
+    <>
+      {!isCollapsed && (
+        <div
+          className="sidebar-backdrop"
+          onClick={onToggleCollapse}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`app-sidebar ${!isCollapsed ? 'mobile-open' : ''}`}
+        style={{
+          width: isCollapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)',
+          minWidth: isCollapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)',
+          backgroundColor: 'var(--bg-sidebar)',
         borderRight: isUrdu ? 'none' : '1px solid var(--border-subtle)',
         borderLeft: isUrdu ? '1px solid var(--border-subtle)' : 'none',
         display: 'flex',
@@ -123,19 +153,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* New Research Action Button */}
       <div style={{ padding: isCollapsed ? '0.75rem 0.5rem' : '0.85rem 1rem' }}>
         <button
-          onClick={onNewConversation}
+          onClick={handleNewTopicClick}
           className="btn btn-primary"
           style={{
             width: '100%',
             justifyContent: isCollapsed ? 'center' : 'flex-start',
             padding: isCollapsed ? '0.6rem' : '0.65rem 1rem',
-            minHeight: '38px',
+            minHeight: '44px',
             borderRadius: 'var(--radius-md)',
             boxShadow: '0 2px 10px rgba(16, 185, 129, 0.18)'
           }}
           title={isUrdu ? 'نئی تحقیق شروع کریں' : 'New Research Topic'}
         >
-          <Plus size={17} strokeWidth={2.5} />
+          <Plus size={18} strokeWidth={2.5} />
           {!isCollapsed && (
             <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
               {isUrdu ? 'نئی تحقیق' : 'New Research'}
@@ -145,20 +175,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Main Navigation Items */}
-      <nav style={{ padding: isCollapsed ? '0.25rem 0.4rem' : '0.25rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+      <nav style={{ padding: isCollapsed ? '0.25rem 0.4rem' : '0.25rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           return (
             <button
               key={item.id}
-              onClick={() => onTabChange(item.id)}
+              onClick={() => handleTabClick(item.id)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.75rem',
                 justifyContent: isCollapsed ? 'center' : 'flex-start',
-                padding: isCollapsed ? '0.65rem' : '0.6rem 0.85rem',
+                padding: isCollapsed ? '0.65rem' : '0.65rem 0.85rem',
                 borderRadius: 'var(--radius-sm)',
                 border: isActive ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid transparent',
                 backgroundColor: isActive ? 'var(--emerald-badge-bg)' : 'transparent',
@@ -166,12 +196,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 fontWeight: isActive ? 600 : 400,
                 fontSize: '0.875rem',
                 cursor: 'pointer',
+                minHeight: '44px',
                 transition: 'all var(--transition-fast)',
                 textAlign: isUrdu ? 'right' : 'left'
               }}
               title={isUrdu ? item.labelUr : item.labelEn}
             >
-              <Icon size={18} color={isActive ? 'var(--emerald-primary)' : 'currentColor'} />
+              <Icon size={19} color={isActive ? 'var(--emerald-primary)' : 'currentColor'} />
               {!isCollapsed && <span>{isUrdu ? item.labelUr : item.labelEn}</span>}
             </button>
           );
@@ -202,15 +233,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               return (
                 <div
                   key={conv.id}
-                  onClick={() => {
-                    onSelectConversation(conv.id);
-                    onTabChange('ask');
-                  }}
+                  onClick={() => handleConversationClick(conv.id)}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '0.5rem 0.75rem',
+                    padding: '0.6rem 0.75rem',
+                    minHeight: '44px',
                     borderRadius: 'var(--radius-sm)',
                     backgroundColor: isSelected ? 'var(--bg-elevated)' : 'transparent',
                     border: isSelected ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid transparent',
@@ -222,7 +251,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="conversation-item"
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', overflow: 'hidden' }}>
-                    <MessageSquare size={13} color={isSelected ? 'var(--emerald-primary)' : 'var(--text-muted)'} />
+                    <MessageSquare size={14} color={isSelected ? 'var(--emerald-primary)' : 'var(--text-muted)'} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '160px' }}>
                       {conv.title || 'Untitled Research'}
                     </span>
@@ -238,13 +267,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       border: 'none',
                       color: 'var(--text-muted)',
                       cursor: 'pointer',
-                      padding: '0.2rem',
+                      padding: '0.35rem',
+                      minWidth: '32px',
+                      minHeight: '32px',
                       display: 'flex',
-                      alignItems: 'center'
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
                     title="Delete session"
                   >
-                    <Trash2 size={12} />
+                    <Trash2 size={13} />
                   </button>
                 </div>
               );
@@ -259,7 +291,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             onClick={onToggleCollapse}
             className="btn btn-ghost btn-icon"
-            style={{ color: 'var(--text-secondary)', minHeight: '34px', minWidth: '34px' }}
+            style={{ color: 'var(--text-secondary)', minHeight: '36px', minWidth: '36px' }}
             title={isUrdu ? 'سائیڈبار کھولیں' : 'Expand sidebar'}
           >
             {isUrdu ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
@@ -267,5 +299,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
     </aside>
+    </>
   );
 };

@@ -10,6 +10,7 @@
 html, body {
   width: 100%;
   height: 100%;
+  height: 100dvh;
   background-color: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-sans);
@@ -18,15 +19,22 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 #root {
-  height: 100vh;
-  width: 100vw;
+  min-height: 100%;
+  height: 100dvh;
+  width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background-color: var(--bg-base);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 /* Custom Scrollbars */
@@ -313,11 +321,63 @@ html, body {
   animation: fadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-/* Responsive utilities */
+/* Responsive utilities & Mobile UI/UX Engine */
 @media (max-width: 768px) {
   :root {
-    --sidebar-width: 240px;
+    --sidebar-width: 280px;
     --content-max-width: 100%;
+  }
+
+  /* Reveal thumb-ergonomic mobile bottom nav */
+  .mobile-bottom-nav {
+    display: flex !important;
+  }
+
+  /* Provide bottom clearance for main content so it is never covered by bottom nav */
+  main.app-main {
+    padding-bottom: calc(58px + max(env(safe-area-inset-bottom, 0px), 8px)) !important;
+  }
+
+  /* Desktop sidebar transitions into a slide-over drawer overlay */
+  aside.app-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: 280px !important;
+    min-width: 280px !important;
+    max-width: 84vw !important;
+    z-index: 60 !important;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.75) !important;
+    transform: translateX(-100%);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    height: 100dvh !important;
+  }
+
+  [dir="rtl"] aside.app-sidebar {
+    left: auto !important;
+    right: 0 !important;
+    transform: translateX(100%);
+  }
+
+  aside.app-sidebar.mobile-open {
+    transform: translateX(0) !important;
+  }
+
+  /* Backdrop blur overlay for mobile drawer */
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.68);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    z-index: 55;
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  /* Hide verbose text badges in header on mobile */
+  .hidden-mobile {
+    display: none !important;
   }
 }
 
@@ -332,13 +392,25 @@ html, body {
     justify-content: space-between !important;
     width: 100% !important;
   }
+  .debate-voice-stage {
+    min-height: 260px !important;
+    padding: 1.2rem 0.6rem !important;
+  }
 }
 
 @media (max-width: 480px) {
   .debate-voice-controls {
     flex-wrap: wrap !important;
     justify-content: center !important;
-    gap: 0.45rem !important;
+    gap: 0.5rem !important;
+  }
+  .arabic-text {
+    font-size: 1.35rem !important;
+    line-height: 2 !important;
+  }
+  .urdu-text {
+    font-size: 1.05rem !important;
+    line-height: 1.9 !important;
   }
 }
 

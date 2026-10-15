@@ -434,7 +434,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                 isConnecting={isConnecting}
                 aiVolume={aiVolume}
                 userVolume={userVolume}
-                size={260}
+                size={typeof window !== 'undefined' && window.innerWidth < 480 ? 210 : 260}
                 onOrbClick={isAISpeaking ? interrupt : undefined}
               />
             </div>
@@ -467,8 +467,8 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                 onClick={toggleMute}
                 className="btn btn-secondary btn-icon"
                 style={{
-                  minHeight: '38px',
-                  minWidth: '38px',
+                  minHeight: '44px',
+                  minWidth: '44px',
                   borderRadius: '50%',
                   backgroundColor: isMuted ? 'rgba(239, 68, 68, 0.15)' : 'var(--bg-elevated)',
                   color: isMuted ? '#EF4444' : 'var(--text-primary)',
@@ -476,7 +476,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                 }}
                 title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
               >
-                {isMuted ? <MicOff size={17} /> : <Mic size={17} />}
+                {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
               </button>
 
               {/* Stop AI / Interrupt Button (Prominently visible when AI is speaking) */}
@@ -486,18 +486,18 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                   onClick={interrupt}
                   className="btn btn-secondary animate-pulse"
                   style={{
-                    minHeight: '38px',
-                    padding: '0 0.95rem',
-                    borderRadius: '20px',
-                    fontSize: '0.8rem',
-                    gap: '0.4rem',
+                    minHeight: '44px',
+                    padding: '0 1.1rem',
+                    borderRadius: '24px',
+                    fontSize: '0.85rem',
+                    gap: '0.45rem',
                     backgroundColor: 'rgba(239, 68, 68, 0.12)',
                     color: '#EF4444',
                     border: '1px solid rgba(239, 68, 68, 0.35)'
                   }}
                   title={isUrdu ? 'دلیلِ حق کی بات روک کر اپنی بات کہیں' : 'Stop AI speech and take the floor'}
                 >
-                  <Hand size={15} />
+                  <Hand size={16} />
                   <span>{isUrdu ? 'بات روکیں' : 'Stop AI'}</span>
                 </button>
               )}
@@ -510,16 +510,16 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                   onClick={finishTurnManual}
                   className="btn btn-primary"
                   style={{
-                    minHeight: '38px',
-                    padding: '0 1.05rem',
-                    borderRadius: '20px',
-                    fontSize: '0.8rem',
-                    gap: '0.45rem',
+                    minHeight: '44px',
+                    padding: '0 1.15rem',
+                    borderRadius: '24px',
+                    fontSize: '0.85rem',
+                    gap: '0.5rem',
                     opacity: phase === 'thinking' ? 0.45 : 1
                   }}
                   title={isUrdu ? 'دلیل مکمل کر کے جواب طلب کریں' : 'Signal end of argument and request AI response'}
                 >
-                  <Sparkles size={15} />
+                  <Sparkles size={16} />
                   <span>{isUrdu ? 'جواب طلب کریں' : 'Respond Now'}</span>
                 </button>
               )}
@@ -530,8 +530,8 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                 onClick={endSession}
                 className="btn btn-secondary btn-icon"
                 style={{
-                  minHeight: '38px',
-                  minWidth: '38px',
+                  minHeight: '44px',
+                  minWidth: '44px',
                   borderRadius: '50%',
                   backgroundColor: 'rgba(239, 68, 68, 0.15)',
                   color: '#EF4444',
@@ -539,7 +539,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                 }}
                 title="End live voice debate session and save transcript"
               >
-                <PhoneOff size={17} />
+                <PhoneOff size={18} />
               </button>
             </div>
           </div>
@@ -794,7 +794,8 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 9999,
-            padding: '1rem'
+            padding: '1rem',
+            paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))'
           }}
           onClick={() => setIsSettingsOpen(false)}
         >
@@ -803,13 +804,15 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               backgroundColor: 'var(--bg-surface)',
               border: '1px solid var(--border-medium)',
               borderRadius: '24px',
-              padding: '1.6rem',
+              padding: '1.4rem 1.25rem',
               maxWidth: '480px',
               width: '100%',
+              maxHeight: '88dvh',
+              overflowY: 'auto',
               boxShadow: '0 25px 60px rgba(0, 0, 0, 0.5)',
               display: 'flex',
               flexDirection: 'column',
-              gap: '1.25rem'
+              gap: '1.15rem'
             }}
             onClick={(e) => e.stopPropagation()}
             dir={isUrdu ? 'rtl' : 'ltr'}
@@ -844,9 +847,9 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                 type="button"
                 onClick={() => setIsSettingsOpen(false)}
                 className="btn btn-ghost btn-icon"
-                style={{ borderRadius: '50%', minHeight: '32px', minWidth: '32px', padding: 0 }}
+                style={{ borderRadius: '50%', minHeight: '38px', minWidth: '38px', padding: 0 }}
               >
-                <X size={17} />
+                <X size={18} />
               </button>
             </div>
 

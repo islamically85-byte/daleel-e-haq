@@ -1101,11 +1101,11 @@ export const AskPage: React.FC<Props> = ({
                 outline: 'none',
                 resize: 'none',
                 color: 'var(--text-primary)',
-                fontSize: '0.975rem',
+                fontSize: '1rem',
                 lineHeight: 1.5,
                 direction: isUrdu ? 'rtl' : 'ltr',
                 textAlign: isUrdu ? 'right' : 'left',
-                padding: '0.4rem 0.6rem 0.2rem',
+                padding: '0.5rem 0.6rem 0.2rem',
                 fontFamily: isUrdu ? 'var(--font-urdu), var(--font-sans)' : 'inherit',
                 minHeight: '44px',
                 maxHeight: '160px',
@@ -1119,11 +1119,13 @@ export const AskPage: React.FC<Props> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                paddingTop: '0.2rem'
+                paddingTop: '0.3rem',
+                gap: '0.4rem',
+                flexWrap: 'nowrap'
               }}
             >
               {/* Left Actions: File Attachment, Dictation Mic, Live Voice Button */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 {/* Hidden file input */}
                 <input
                   type="file"
@@ -1138,10 +1140,10 @@ export const AskPage: React.FC<Props> = ({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="btn btn-ghost btn-icon"
-                  style={{ minHeight: '34px', minWidth: '34px', padding: '0.35rem' }}
+                  style={{ minHeight: '40px', minWidth: '40px', padding: '0.45rem' }}
                   title={isUrdu ? 'تصویر منسلک کریں' : 'Attach image'}
                 >
-                  <ImageIcon size={18} />
+                  <ImageIcon size={19} />
                 </button>
 
                 {/* Voice Dictation (Mode A) */}
@@ -1156,9 +1158,9 @@ export const AskPage: React.FC<Props> = ({
                   }}
                   className="btn btn-ghost btn-icon"
                   style={{
-                    minHeight: '34px',
-                    minWidth: '34px',
-                    padding: '0.35rem',
+                    minHeight: '40px',
+                    minWidth: '40px',
+                    padding: '0.45rem',
                     backgroundColor: isDictating ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
                     color: isDictating ? '#EF4444' : 'var(--text-secondary)',
                     border: isDictating ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid transparent'
@@ -1169,7 +1171,7 @@ export const AskPage: React.FC<Props> = ({
                       : (isUrdu ? 'صوتی املا شروع کریں' : 'Start voice dictation')
                   }
                 >
-                  {isDictating ? <MicOff size={18} /> : <Mic size={18} />}
+                  {isDictating ? <MicOff size={19} /> : <Mic size={19} />}
                 </button>
 
                 {/* Voice Selection & Onboarding (Milestone C) */}
@@ -1178,17 +1180,17 @@ export const AskPage: React.FC<Props> = ({
                   onClick={handleOpenVoice}
                   className="btn btn-ghost"
                   style={{
-                    minHeight: '34px',
-                    padding: '0.3rem 0.65rem',
-                    gap: '0.35rem',
-                    borderRadius: '16px',
+                    minHeight: '40px',
+                    padding: '0.35rem 0.75rem',
+                    gap: '0.4rem',
+                    borderRadius: '18px',
                     fontSize: '0.8rem',
                     color: 'var(--emerald-primary)',
                     backgroundColor: 'rgba(18, 168, 134, 0.08)'
                   }}
                   title={isUrdu ? 'آواز کی ترتیبات اور انتخاب' : 'Voice selection & setup'}
                 >
-                  <Headphones size={15} />
+                  <Headphones size={16} />
                   <span>{selectedVoiceName}</span>
                 </button>
               </div>
@@ -1201,17 +1203,17 @@ export const AskPage: React.FC<Props> = ({
                     onClick={handleStopGeneration}
                     className="btn btn-secondary btn-icon"
                     style={{
-                      minHeight: '34px',
-                      minWidth: '34px',
+                      minHeight: '40px',
+                      minWidth: '40px',
                       borderRadius: '50%',
-                      padding: '0.35rem',
+                      padding: '0.45rem',
                       backgroundColor: 'var(--bg-elevated)',
                       border: '1px solid var(--border-subtle)',
                       color: 'var(--text-primary)'
                     }}
                     title="Stop generation"
                   >
-                    <Square size={14} fill="currentColor" />
+                    <Square size={15} fill="currentColor" />
                   </button>
                 ) : (
                   <button
@@ -1220,14 +1222,14 @@ export const AskPage: React.FC<Props> = ({
                     disabled={!inputQuestion.trim() && !selectedImage}
                     className="btn btn-primary btn-icon"
                     style={{
-                      minHeight: '34px',
-                      minWidth: '34px',
+                      minHeight: '40px',
+                      minWidth: '40px',
                       borderRadius: '50%',
-                      padding: '0.35rem'
+                      padding: '0.45rem'
                     }}
                     title={isUrdu ? 'ارسال' : 'Send'}
                   >
-                    <Send size={15} />
+                    <Send size={17} />
                   </button>
                 )}
               </div>

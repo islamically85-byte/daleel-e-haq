@@ -43,19 +43,19 @@ export const Header: React.FC<HeaderProps> = ({
       }}
     >
       {/* Left: Sidebar Toggle & Quick Title */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
         {onToggleSidebar && (
           <button
             onClick={onToggleSidebar}
-            className="btn btn-ghost btn-icon"
-            style={{ color: 'var(--text-secondary)', padding: '0.4rem' }}
+            className="btn btn-ghost btn-icon header-sidebar-toggle"
+            style={{ color: 'var(--text-secondary)', padding: '0.5rem', minWidth: '44px', minHeight: '44px' }}
             title={isUrdu ? 'مینو کھولیں / بند کریں' : 'Toggle Sidebar'}
           >
-            <Menu size={19} />
+            <Menu size={20} />
           </button>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.6rem' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
           <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em', margin: 0 }}>
             Daleel-e-Haq
           </h2>
@@ -69,35 +69,39 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right: Status Pills & Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'nowrap' }}>
         {/* Local Scripture Status Pill */}
         <div
+          className="header-quran-pill"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '0.45rem',
-            padding: '0.3rem 0.65rem',
+            gap: '0.4rem',
+            padding: '0.3rem 0.6rem',
             backgroundColor: 'rgba(255, 255, 255, 0.04)',
             borderRadius: '9999px',
             border: '1px solid var(--border-subtle)',
             fontSize: '0.75rem',
-            color: 'var(--text-secondary)'
+            color: 'var(--text-secondary)',
+            whiteSpace: 'nowrap'
           }}
           title="Verified canonical local Quran verses"
         >
-          <Database size={12} color="var(--emerald-primary)" />
+          <Database size={13} color="var(--emerald-primary)" />
           <span style={{ fontWeight: 500 }}>
-            {quranCount.toLocaleString()} {isUrdu ? 'آیات' : 'Verses'}
+            {quranCount >= 1000 ? `${(quranCount / 1000).toFixed(1)}k` : quranCount}
+            <span className="hidden-mobile"> {isUrdu ? 'آیات' : 'Verses'}</span>
           </span>
         </div>
 
         {/* Active AI Status Pill */}
         <div
+          className="header-ai-pill"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '0.45rem',
-            padding: '0.3rem 0.75rem',
+            gap: '0.4rem',
+            padding: '0.3rem 0.65rem',
             backgroundColor: !isOnlineMode
               ? 'rgba(255, 255, 255, 0.04)'
               : providerConfigured
@@ -109,7 +113,8 @@ export const Header: React.FC<HeaderProps> = ({
               : providerConfigured
                 ? '1px solid rgba(16, 185, 129, 0.3)'
                 : '1px solid rgba(245, 158, 11, 0.35)',
-            fontSize: '0.75rem'
+            fontSize: '0.75rem',
+            whiteSpace: 'nowrap'
           }}
           title={
             !isOnlineMode
@@ -138,6 +143,7 @@ export const Header: React.FC<HeaderProps> = ({
             }}
           />
           <span
+            className="hidden-mobile"
             style={{
               fontWeight: 600,
               color: !isOnlineMode
@@ -150,8 +156,8 @@ export const Header: React.FC<HeaderProps> = ({
             {!isOnlineMode
               ? (isUrdu ? 'آف لائن' : 'Offline')
               : providerConfigured
-                ? (isUrdu ? 'آن لائن ماڈل فعال' : 'Online AI Active')
-                : (isUrdu ? 'اے پی آئی غیر مرتب' : 'API Key Unconfigured')}
+                ? (isUrdu ? 'ماڈل فعال' : 'Online AI')
+                : (isUrdu ? 'غیر مرتب' : 'Unconfigured')}
           </span>
         </div>
 
@@ -159,22 +165,22 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={() => onLanguageChange(language === 'en' ? 'ur' : 'en')}
           className="btn btn-secondary"
-          style={{ padding: '0.3rem 0.7rem', fontSize: '0.775rem', minHeight: '32px' }}
+          style={{ padding: '0.35rem 0.65rem', fontSize: '0.775rem', minHeight: '36px', minWidth: '40px' }}
           title={language === 'en' ? 'اردو انٹرفیس منتخب کریں' : 'Switch interface to English'}
         >
           <Globe size={14} />
-          <span>{language === 'en' ? 'اردو' : 'English'}</span>
+          <span>{language === 'en' ? 'اردو' : 'EN'}</span>
         </button>
 
         {/* Quick Settings Icon */}
         {onNavigateSettings && (
           <button
             onClick={() => onNavigateSettings('settings')}
-            className="btn btn-ghost btn-icon"
-            style={{ minHeight: '32px', minWidth: '32px', padding: '0.35rem', color: 'var(--text-secondary)' }}
+            className="btn btn-ghost btn-icon header-settings-btn"
+            style={{ minHeight: '36px', minWidth: '36px', padding: '0.35rem', color: 'var(--text-secondary)' }}
             title={isUrdu ? 'ترتیبات' : 'Settings'}
           >
-            <Settings size={16} />
+            <Settings size={17} />
           </button>
         )}
       </div>
