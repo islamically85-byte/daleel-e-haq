@@ -519,9 +519,11 @@ async def debate_live_websocket(
             # Task 3: Receive Gemini audio parts, tool calls, captions, and turn events continuously
             async def forward_gemini_responses():
                 nonlocal active_generation_id, server_turn_state
+                current_gen = active_generation_id
                 try:
                     while not session_ended.is_set():
                         async for response in gemini_session.receive():
+                            current_gen = active_generation_id
                             # 1. Server-side Function / Tool Calls
                             if response.tool_call:
                                 await websocket.send_json({
