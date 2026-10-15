@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: daleel-e-haq-backend
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: HOST
+        value: 0.0.0.0
+      - key: CORS_ORIGINS
+        value: https://daleelhaq.pages.dev,https://*.daleelhaq.pages.dev,http://localhost:5173
+      - key: GEMINI_API_KEY
+        sync: false
