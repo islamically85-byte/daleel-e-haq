@@ -186,3 +186,35 @@ def import_hadith_record(record: Dict[str, Any], conn: sqlite3.Connection) -> st
         ))
 
     return hadith_id
+
+
+def import_hadith_corpus(conn: sqlite3.Connection = None) -> int:
+    """Imports canonical verified Sahih al-Bukhari and Sahih Muslim corpus into SQLite."""
+    import os
+    from app.config import settings
+
+    corpus_dir = settings.absolute_corpus_dir
+    hadith_file = os.path.join(corpus_dir, "hadith_canonical_sahih.json")
+
+    if not os.path.exists(hadith_file):
+        return 0
+
+    with open(hadith_file, "r", encoding="utf-8") as f:
+        records = json.load(f)
+
+    close_after = False
+    if conn is None:
+        conn = get_connection()
+        close_after = True
+
+    imported = 0
+    try:
+        for rec in records:
+            import_hadith_record(rec, conn)
+            imported += 1
+        conn.commit()
+    finally:
+        if close_after:
+            conn.close()
+
+    return imported

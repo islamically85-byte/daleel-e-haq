@@ -7,6 +7,7 @@ from app.api.routes import router
 from app.config import settings
 from app.db.connection import get_connection
 from app.db.init_db import initialize_database
+from app.evidence.hadith_importer import import_hadith_corpus, get_hadith_status
 from app.evidence.quran_importer import import_quran_corpus
 
 logging.basicConfig(
@@ -36,6 +37,18 @@ async def lifespan(app: FastAPI):
             logger.error(f"Failed to auto-import Quran corpus: {e}")
     else:
         logger.info("Canonical Quran corpus verified (6,236 verses ready).")
+
+    # Check and populate verified Hadith corpus (Sahih Bukhari & Sahih Muslim)
+    try:
+        h_stat = get_hadith_status()
+        if h_stat["approved_records"] == 0:
+            logger.info("Populating canonical verified Hadith corpus (Sahih al-Bukhari & Sahih Muslim)...")
+            h_count = import_hadith_corpus()
+            logger.info(f"Canonical Hadith corpus successfully loaded ({h_count} approved narrations).")
+        else:
+            logger.info(f"Canonical Hadith corpus verified ({h_stat['approved_records']} approved records ready).")
+    except Exception as e:
+        logger.error(f"Failed to auto-import Hadith corpus: {e}")
 
     yield
 

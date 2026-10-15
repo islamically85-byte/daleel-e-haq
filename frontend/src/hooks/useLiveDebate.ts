@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { voicePreferences } from '../services/voicePreferences';
 import { api } from '../services/api';
 import { openBrowserAudio } from '../voice/browserAudio';
+import { soundEffects } from '../voice/uiSoundEffects';
 import {
   VoiceSession,
   type DebatePhase,
@@ -177,7 +178,11 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
       const selectedVoice = customVoice || voicePreferences.getSelectedVoice() || 'Kore';
       const selectedLang = customLanguage || 'auto';
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = `${protocol}//${window.location.host}/api/ws/debate-live?voice=${encodeURIComponent(selectedVoice)}&language=${encodeURIComponent(selectedLang)}&session_id=${encodeURIComponent(sessionIdRef.current)}`;
+      const customKey = (localStorage.getItem('daleel_user_gemini_api_key') || '').trim();
+      let url = `${protocol}//${window.location.host}/api/ws/debate-live?voice=${encodeURIComponent(selectedVoice)}&language=${encodeURIComponent(selectedLang)}&session_id=${encodeURIComponent(sessionIdRef.current)}`;
+      if (customKey) {
+        url += `&api_key=${encodeURIComponent(customKey)}`;
+      }
 
       const session: VoiceSession = new VoiceSession({
         url,
@@ -188,10 +193,14 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
             if (sessionRef.current === session) setSnap(s);
           },
           onServerMessage: (d) => {
-            if (sessionRef.current === session) handleServerMessage(d);
+            if (sessionRef.current === session) {
+              if (d.type === 'ready') soundEffects.playConnectChime();
+              handleServerMessage(d);
+            }
           },
           onError: (code, message) => {
             if (sessionRef.current !== session) return;
+            soundEffects.stopThinkingTick();
             setError(message);
             setErrorCode(code);
           }
@@ -203,7 +212,21 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     [handleServerMessage]
   );
 
+  // Sync procedural thinking tick audio with debate phase
+  useEffect(() => {
+    if (snap.phase === 'thinking') {
+      soundEffects.startThinkingTick();
+    } else {
+      soundEffects.stopThinkingTick();
+    }
+    return () => {
+      soundEffects.stopThinkingTick();
+    };
+  }, [snap.phase]);
+
   const endSession = useCallback(async () => {
+    soundEffects.stopThinkingTick();
+    soundEffects.playSoftClick();
     const recorded = turnsRef.current;
     sessionRef.current?.end();
     if (recorded.length === 0) return;
@@ -230,8 +253,15 @@ export function useLiveDebate(options?: UseLiveDebateOptions) {
     }
   }, [options]);
 
-  const toggleMute = useCallback(() => sessionRef.current?.toggleMute(), []);
-  const interrupt = useCallback(() => sessionRef.current?.interrupt(), []);
+  const toggleMute = useCallback(() => {
+    soundEffects.playSoftClick();
+    sessionRef.current?.toggleMute();
+  }, []);
+
+  const interrupt = useCallback(() => {
+    soundEffects.playSoftClick();
+    sessionRef.current?.interrupt();
+  }, []);
   const finishTurnManual = useCallback(() => sessionRef.current?.respondNow(), []);
 
   const sendTextTurn = useCallback((text: string) => {

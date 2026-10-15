@@ -6,12 +6,15 @@ import {
   ChevronUp,
   Hand,
   Headphones,
+  Key,
   Mic,
   MicOff,
   PhoneOff,
   Play,
   RotateCcw,
+  Settings,
   Sparkles,
+  Volume2,
   X
 } from 'lucide-react';
 import { useLiveDebate } from '../hooks/useLiveDebate';
@@ -29,6 +32,14 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
     () => voicePreferences.getSelectedVoice()
   );
   const [isEvidenceDrawerOpen, setIsEvidenceDrawerOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [customApiKey, setCustomApiKey] = useState(
+    () => localStorage.getItem('daleel_user_gemini_api_key') || ''
+  );
+  const [engineMode, setEngineMode] = useState<'gemini' | 'ollama'>(
+    () => (localStorage.getItem('daleel_engine_mode') as any) || 'gemini'
+  );
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const {
     isConnected,
@@ -249,39 +260,77 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               {v}
             </button>
           ))}
+
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="btn btn-ghost"
+            style={{
+              padding: '0.2rem 0.55rem',
+              minHeight: '26px',
+              fontSize: '0.72rem',
+              borderRadius: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.3rem',
+              color: customApiKey ? 'var(--emerald-primary)' : 'var(--text-secondary)',
+              border: customApiKey ? '1px solid rgba(18, 168, 134, 0.35)' : '1px solid var(--border-subtle)',
+              backgroundColor: customApiKey ? 'rgba(18, 168, 134, 0.1)' : 'transparent'
+            }}
+            title={isUrdu ? 'سیٹنگز اور ذاتی Gemini کی' : 'Settings & Custom API Key'}
+          >
+            <Settings size={13} />
+            <span>{isUrdu ? 'سیٹنگز' : 'Settings'}</span>
+          </button>
         </div>
       </div>
-
-      {/* Error Banner */}
+      {/* Error Banner with Direct Retry Action */}
       {error && (
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '0.75rem',
-            padding: '0.55rem 0.9rem',
+            padding: '0.65rem 1rem',
             backgroundColor: 'var(--danger-badge-bg)',
             border: '1px solid rgba(239, 68, 68, 0.35)',
-            borderRadius: '12px',
+            borderRadius: '14px',
             color: 'var(--danger-badge-text)',
             fontSize: '0.825rem',
-            flexShrink: 0
+            flexShrink: 0,
+            boxShadow: '0 4px 15px rgba(239, 68, 68, 0.15)'
           }}
           className="animate-fade-in"
         >
-          <AlertTriangle size={15} style={{ flexShrink: 0 }} />
-          <span style={{ flex: 1 }}>{error}</span>
-          <button
-            type="button"
-            onClick={clearError}
-            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0.2rem' }}
-          >
-            <X size={14} />
-          </button>
+          <AlertTriangle size={17} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, fontWeight: 500 }}>{error}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <button
+              type="button"
+              onClick={handleStart}
+              className="btn btn-primary"
+              style={{
+                padding: '0.25rem 0.75rem',
+                fontSize: '0.75rem',
+                borderRadius: '8px',
+                minHeight: '26px'
+              }}
+            >
+              {isUrdu ? 'دوبارہ بولیں' : 'Retry'}
+            </button>
+            <button
+              type="button"
+              onClick={clearError}
+              style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0.2rem' }}
+              title="Dismiss"
+            >
+              <X size={15} />
+            </button>
+          </div>
         </div>
       )}
 
-      {/* 2. Visualizer Stage: Daleel Celestial Orb & Real-Time Phase Display */}
+      {/* 2. Visualizer Stage: Expansive ChatGPT-style Celestial Voice Bubble */}
       <div
         className="debate-voice-stage"
         style={{
@@ -289,17 +338,26 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '1rem 0.9rem',
+          padding: isConnected || isConnecting ? '2.2rem 1.2rem' : '1.5rem 1rem',
           backgroundColor: 'var(--bg-surface)',
-          borderRadius: '18px',
-          border: '1px solid var(--border-subtle)',
+          borderRadius: '24px',
+          border: isConnected
+            ? '1px solid rgba(18, 168, 134, 0.45)'
+            : '1px solid var(--border-subtle)',
+          boxShadow: isConnected
+            ? '0 12px 50px -10px rgba(18, 168, 134, 0.28), inset 0 0 40px rgba(18, 168, 134, 0.05)'
+            : '0 4px 20px rgba(0, 0, 0, 0.04)',
+          background: isConnected
+            ? 'radial-gradient(circle at center, rgba(18, 168, 134, 0.15) 0%, rgba(15, 23, 42, 0.1) 70%), var(--bg-surface)'
+            : 'var(--bg-surface)',
           position: 'relative',
-          minHeight: '130px',
+          minHeight: isConnected || isConnecting ? '380px' : '190px',
+          transition: 'all 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
           flexShrink: 0
         }}
       >
         {!isConnected && !isConnecting ? (
-          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.65rem' }}>
+          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.85rem' }}>
             <DaleelVoiceOrb
               phase="idle"
               isAISpeaking={false}
@@ -309,27 +367,27 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               isConnecting={false}
               aiVolume={0}
               userVolume={0}
-              size={120}
+              size={160}
               onOrbClick={handleStart}
             />
             <div>
-              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                 {isUrdu ? 'دلیلِ حق سے براہِ راست مناظرہ' : 'Start Live Voice Debate'}
               </h3>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.785rem', color: 'var(--text-secondary)' }}>
+              <p style={{ margin: '0.3rem 0 0', fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
                 {isUrdu
                   ? 'اپنا علمی یا قرآنی استدلال بولیں؛ دلیلِ حق فورا سن کر مدلل جواب دے گا'
                   : 'Speak your theological argument; Daleel-e-Haq verifies scripture and responds'}
               </p>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
               <button
                 type="button"
                 onClick={handleStart}
                 className="btn btn-primary"
-                style={{ padding: '0.55rem 1.6rem', borderRadius: '24px', fontSize: '0.875rem', gap: '0.5rem' }}
+                style={{ padding: '0.65rem 1.8rem', borderRadius: '28px', fontSize: '0.9rem', gap: '0.55rem', boxShadow: '0 4px 15px rgba(18, 168, 134, 0.3)' }}
               >
-                <Play size={16} fill="currentColor" />
+                <Play size={17} fill="currentColor" />
                 <span>{isUrdu ? 'دلیلِ حق سے گفتگو شروع کریں' : 'Talk to Daleel-e-Haq'}</span>
               </button>
               {turns.length > 0 && (
@@ -337,7 +395,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
                   type="button"
                   onClick={() => sessionStorage.removeItem('daleel_live_debate_turns')}
                   className="btn btn-secondary"
-                  style={{ padding: '0.55rem 0.9rem', borderRadius: '24px', fontSize: '0.8rem', gap: '0.35rem' }}
+                  style={{ padding: '0.65rem 1rem', borderRadius: '28px', fontSize: '0.825rem', gap: '0.4rem' }}
                   title={isUrdu ? 'سابقہ ریکارڈ صاف کریں' : 'Clear prior turns'}
                 >
                   <RotateCcw size={14} />
@@ -347,7 +405,7 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
             </div>
           </div>
         ) : isConnecting ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.65rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
             <DaleelVoiceOrb
               phase="connecting"
               isAISpeaking={false}
@@ -357,40 +415,43 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
               isConnecting={true}
               aiVolume={0}
               userVolume={0}
-              size={120}
+              size={240}
             />
-            <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
               {isUrdu ? 'براہِ راست صوتی سرور سے رابطہ قائم ہو رہا ہے...' : 'Connecting to live voice server...'}
             </span>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.65rem', width: '100%' }}>
-            {/* Audio Reactive Celestial Orb */}
-            <DaleelVoiceOrb
-              phase={phase}
-              isAISpeaking={isAISpeaking}
-              isUserSpeaking={isUserSpeaking}
-              isMuted={isMuted}
-              isConnected={isConnected}
-              isConnecting={isConnecting}
-              aiVolume={aiVolume}
-              userVolume={userVolume}
-              size={135}
-              onOrbClick={isAISpeaking ? interrupt : undefined}
-            />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.85rem', width: '100%' }}>
+            {/* Audio Reactive Large Celestial Orb (ChatGPT Voice Mode Style) */}
+            <div style={{ position: 'relative', width: '100%', display: 'flex', justifyContent: 'center' }}>
+              <DaleelVoiceOrb
+                phase={phase}
+                isAISpeaking={isAISpeaking}
+                isUserSpeaking={isUserSpeaking}
+                isMuted={isMuted}
+                isConnected={isConnected}
+                isConnecting={isConnecting}
+                aiVolume={aiVolume}
+                userVolume={userVolume}
+                size={260}
+                onOrbClick={isAISpeaking ? interrupt : undefined}
+              />
+            </div>
 
             {/* Speaking Status Caption with distinct state descriptions */}
             <div style={{ textAlign: 'center' }}>
               <div
                 style={{
-                  fontSize: '0.875rem',
-                  fontWeight: 600,
-                  color: phaseInfo.badgeColor
+                  fontSize: '0.95rem',
+                  fontWeight: 700,
+                  color: phaseInfo.badgeColor,
+                  letterSpacing: '0.01em'
                 }}
               >
                 {phaseInfo.badge}
               </div>
-              <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
                 {phaseInfo.instruction}
               </div>
             </div>
@@ -720,6 +781,223 @@ export const DebateLiveVoiceView: React.FC<Props> = ({ language, onDebateSaved }
           )}
         </div>
       </div>
+
+      {/* 4. Settings & Custom API Key Modal */}
+      {isSettingsOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.72)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '1rem'
+          }}
+          onClick={() => setIsSettingsOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-medium)',
+              borderRadius: '24px',
+              padding: '1.6rem',
+              maxWidth: '480px',
+              width: '100%',
+              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.5)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1.25rem'
+            }}
+            onClick={(e) => e.stopPropagation()}
+            dir={isUrdu ? 'rtl' : 'ltr'}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div
+                  style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '10px',
+                    backgroundColor: 'rgba(18, 168, 134, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--emerald-primary)'
+                  }}
+                >
+                  <Key size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {isUrdu ? 'صوتی مناظرہ اور API ترتیبات' : 'Voice & AI Engine Settings'}
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                    {isUrdu ? 'ذاتی Gemini کلید اور مقامی ماڈل منتخب کریں' : 'Custom Gemini API Key & Local Engine'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+                className="btn btn-ghost btn-icon"
+                style={{ borderRadius: '50%', minHeight: '32px', minWidth: '32px', padding: 0 }}
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            {/* Custom Gemini API Key Field */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+              <label style={{ fontSize: '0.825rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {isUrdu ? 'ذاتی Gemini API Key (اختیاری):' : 'Custom Gemini API Key (Optional):'}
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="password"
+                  value={customApiKey}
+                  onChange={(e) => setCustomApiKey(e.target.value)}
+                  placeholder={isUrdu ? 'AIzaSy... (خالی چھوڑنے پر سرور کی کلید استعمال ہوگی)' : 'AIzaSy... (Leave blank to use server key)'}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '12px',
+                    border: '1px solid var(--border-medium)',
+                    backgroundColor: 'var(--bg-elevated)',
+                    color: 'var(--text-primary)',
+                    fontSize: '0.825rem',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                {isUrdu
+                  ? 'کلید صرف آپ کے براؤزر کے محفوظ لوکل اسٹوریج میں رہے گی اور براہ راست صوتی سیشن کو دی جائے گی۔'
+                  : 'Key is securely stored in your browser local storage and used for your voice sessions.'}
+              </span>
+            </div>
+
+            {/* AI Engine Selection */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+              <label style={{ fontSize: '0.825rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {isUrdu ? 'استدلال انجن (AI Engine Mode):' : 'Reasoning Engine Mode:'}
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setEngineMode('gemini')}
+                  style={{
+                    padding: '0.7rem 0.8rem',
+                    borderRadius: '12px',
+                    border: engineMode === 'gemini' ? '2px solid var(--emerald-primary)' : '1px solid var(--border-subtle)',
+                    backgroundColor: engineMode === 'gemini' ? 'rgba(18, 168, 134, 0.12)' : 'var(--bg-elevated)',
+                    color: engineMode === 'gemini' ? 'var(--emerald-primary)' : 'var(--text-secondary)',
+                    textAlign: isUrdu ? 'right' : 'left',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.2rem'
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: '0.825rem' }}>Gemini 3.8 Live</span>
+                  <span style={{ fontSize: '0.68rem', opacity: 0.8 }}>
+                    {isUrdu ? 'کلاؤڈ ریئل ٹائم صوتی مکالمہ' : 'Cloud Low-Latency Voice'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setEngineMode('ollama')}
+                  style={{
+                    padding: '0.7rem 0.8rem',
+                    borderRadius: '12px',
+                    border: engineMode === 'ollama' ? '2px solid var(--emerald-primary)' : '1px solid var(--border-subtle)',
+                    backgroundColor: engineMode === 'ollama' ? 'rgba(18, 168, 134, 0.12)' : 'var(--bg-elevated)',
+                    color: engineMode === 'ollama' ? 'var(--emerald-primary)' : 'var(--text-secondary)',
+                    textAlign: isUrdu ? 'right' : 'left',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.2rem'
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: '0.825rem' }}>Local Engine</span>
+                  <span style={{ fontSize: '0.68rem', opacity: 0.8 }}>
+                    {isUrdu ? 'مقامی آف لائن (Ollama)' : 'Local Offline (Ollama)'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Thinking Sound Information */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.65rem',
+                padding: '0.65rem 0.85rem',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(18, 168, 134, 0.08)',
+                border: '1px solid rgba(18, 168, 134, 0.2)'
+              }}
+            >
+              <Volume2 size={18} style={{ color: 'var(--emerald-primary)', flexShrink: 0 }} />
+              <div style={{ fontSize: '0.735rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                {isUrdu
+                  ? 'صوتی فیڈ بیک فعال ہے: سوچنے کے دوران نرم "ٹک ٹک ٹک" کی دھیمی تال سنائی دے گی جس سے معلوم ہوگا کہ استدلال کا عمل جاری ہے۔'
+                  : 'Soft audio feedback active: A gentle procedural tick-tick pulse plays while Daleel-e-Haq is verifying evidence.'}
+              </div>
+            </div>
+
+            {/* Save Success Alert */}
+            {saveSuccess && (
+              <div style={{ fontSize: '0.78rem', color: 'var(--emerald-primary)', textAlign: 'center', fontWeight: 600 }}>
+                {isUrdu ? '✓ ترتیبات کامیابی سے محفوظ ہو گئیں!' : '✓ Settings saved successfully!'}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', gap: '0.65rem', justifyContent: 'flex-end', marginTop: '0.3rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomApiKey('');
+                  localStorage.removeItem('daleel_user_gemini_api_key');
+                  setSaveSuccess(true);
+                  setTimeout(() => setSaveSuccess(false), 2000);
+                }}
+                className="btn btn-secondary"
+                style={{ padding: '0.45rem 0.9rem', fontSize: '0.78rem', borderRadius: '12px' }}
+              >
+                {isUrdu ? 'کلید صاف کریں' : 'Reset Key'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (customApiKey.trim()) {
+                    localStorage.setItem('daleel_user_gemini_api_key', customApiKey.trim());
+                  } else {
+                    localStorage.removeItem('daleel_user_gemini_api_key');
+                  }
+                  localStorage.setItem('daleel_engine_mode', engineMode);
+                  setSaveSuccess(true);
+                  setTimeout(() => {
+                    setSaveSuccess(false);
+                    setIsSettingsOpen(false);
+                  }, 800);
+                }}
+                className="btn btn-primary"
+                style={{ padding: '0.45rem 1.4rem', fontSize: '0.78rem', borderRadius: '12px' }}
+              >
+                {isUrdu ? 'محفوظ کریں' : 'Save Settings'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

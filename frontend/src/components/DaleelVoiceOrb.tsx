@@ -81,8 +81,8 @@ export const DaleelVoiceOrb: React.FC<DaleelVoiceOrbProps> = ({
         const { width, height } = entry.contentRect;
         const available = Math.min(width || size, height || size);
         if (available > 40) {
-          // Clamp between 80px and 240px for mobile landscape reachability
-          const clamped = Math.max(80, Math.min(240, Math.round(available)));
+          // Responsive sizing clamped between 80px and 340px for large immersive stage
+          const clamped = Math.max(80, Math.min(Math.max(240, size), Math.round(available)));
           setOrbDimension(clamped);
         }
       }

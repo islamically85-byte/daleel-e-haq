@@ -212,7 +212,8 @@ def handle_hadith_lookup(args: Dict[str, Any]) -> Dict[str, Any]:
 async def debate_live_websocket(
     websocket: WebSocket,
     voice: str = Query(default="Puck"),
-    language: str = Query(default="auto")
+    language: str = Query(default="auto"),
+    api_key: Optional[str] = Query(default=None)
 ):
     """Bidirectional WebSocket for real-time voice-to-voice debate using gemini-3.8-live.
     
@@ -231,10 +232,11 @@ async def debate_live_websocket(
 
     await websocket.accept()
 
-    if not settings.GEMINI_API_KEY or settings.GEMINI_API_KEY == "your_gemini_api_key_here":
+    effective_api_key = (api_key.strip() if api_key and api_key.strip() else None) or settings.GEMINI_API_KEY
+    if not effective_api_key or effective_api_key == "your_gemini_api_key_here":
         await websocket.send_json({
             "type": "error",
-            "message": "Speech reasoning service is currently unavailable. Please configure backend environment."
+            "message": "Speech reasoning service is currently unavailable. Please provide a Gemini API key in Settings."
         })
         await websocket.close(code=1008)
         return
@@ -302,7 +304,7 @@ async def debate_live_websocket(
         + gender_directive
     )
 
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(api_key=effective_api_key)
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         speech_config=types.SpeechConfig(
