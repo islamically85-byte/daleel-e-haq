@@ -2,8 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Ensure curl for healthchecks
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# Ensure curl and socat for dual-port forwarding (8000 <-> 8080)
+RUN apt-get update && apt-get install -y --no-install-recommends curl socat && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
 COPY backend/requirements.txt ./requirements.txt
@@ -16,9 +16,9 @@ COPY backend/ ./backend/
 COPY data/corpus/ ./data/corpus/
 
 ENV HOST=0.0.0.0
-ENV PORT=8000
+ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8000
+EXPOSE 8000 8080
 
-CMD ["sh", "-c", "cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "if [ \"${PORT:-8080}\" != \"8000\" ]; then socat TCP-LISTEN:8000,fork,reuseaddr TCP:127.0.0.1:${PORT:-8080} & fi; cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
