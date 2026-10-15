@@ -194,9 +194,17 @@ def import_hadith_corpus(conn: sqlite3.Connection = None) -> int:
     from app.config import settings
 
     corpus_dir = settings.absolute_corpus_dir
-    hadith_file = os.path.join(corpus_dir, "hadith_canonical_sahih.json")
+    candidate_paths = [
+        os.path.join(corpus_dir, "hadith_canonical_sahih.json"),
+        os.path.join(os.getcwd(), "data", "corpus", "hadith_canonical_sahih.json"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "corpus", "hadith_canonical_sahih.json"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "data", "corpus", "hadith_canonical_sahih.json"),
+    ]
 
-    if not os.path.exists(hadith_file):
+    hadith_file = next((p for p in candidate_paths if os.path.exists(p)), None)
+    if not hadith_file:
+        import logging
+        logging.getLogger("daleel").warning(f"Hadith corpus file not found in candidates: {candidate_paths}")
         return 0
 
     with open(hadith_file, "r", encoding="utf-8") as f:

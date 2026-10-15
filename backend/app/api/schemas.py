@@ -10,6 +10,7 @@ class HealthResponse(BaseModel):
     environment: str
     quran_records_loaded: int
     hadith_configured: bool
+    hadith_records_loaded: int = 0
     active_provider: str
     active_model: str
     provider_configured: bool = False

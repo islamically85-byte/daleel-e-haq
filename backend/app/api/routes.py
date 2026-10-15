@@ -47,10 +47,11 @@ def health_check():
 
     return HealthResponse(
         status="healthy",
-        version="1.0.0-phase1",
+        version="1.0.1-sahih-corpus",
         environment=settings.ENVIRONMENT,
         quran_records_loaded=quran_count,
         hadith_configured=hadith_stat["is_configured"],
+        hadith_records_loaded=hadith_stat["approved_records"],
         active_provider=meta["provider_id"],
         active_model=meta["model"],
         provider_configured=has_key,
